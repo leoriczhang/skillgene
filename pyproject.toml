@@ -69,6 +69,7 @@ skillgene = [
     "web/dist/*.html",
     "web/dist/assets/*",
     "integrations/hermes_skill/*",
+    "integrations/hermes_skill_sync/*",
 ]
 
 [tool.ruff]

@@ -94,16 +94,35 @@ http://127.0.0.1:30000/console
 ## Use Team Skills on Other Hermes Machines
 
 SkillGene is no longer used as a Hermes model proxy. To use team skills on
-other Hermes machines, pull or sync the team skill directory locally, then add
-that directory to Hermes `skills.external_dirs`.
+other Hermes machines, install the `skillgene-sync` hook. It pulls team skills
+from OpenViking before each LLM call and adds the local sync directory to Hermes
+`skills.external_dirs`, so `skills_list`, `skill_view`, and `/skills` keep using
+Hermes-native skill discovery.
 
-Example:
+Run this on the Hermes machine:
+
+```bash
+python skillgene/integrations/hermes_skill_sync/install.py \
+  --viking-endpoint "https://<your-openviking-endpoint>" \
+  --viking-team-api-key "<team-key>" \
+  --viking-root-prefix "skillgene"
+```
+
+The default sync directory is `<HERMES_HOME>/team_skills/skillgene`. The installer
+writes:
 
 ```yaml
 skills:
   external_dirs:
-    - /path/to/team/skills
+    - <HERMES_HOME>/team_skills/skillgene
+hooks:
+  pre_llm_call:
+    - command: "python3 <HERMES_HOME>/skills/skillgene-sync/sync_skills.py"
+      timeout: 60
 ```
+
+If Hermes is already running, execute `/reload-skills` to refresh the current
+session's skill caches. New sessions pick it up automatically.
 
 If you only want to submit Hermes sessions after each conversation, use the
 `skillgene-feed` hook below. The hook target must expose an `/ingest_session`

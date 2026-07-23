@@ -93,16 +93,32 @@ http://127.0.0.1:30000/console
 ## 在其他机器上使用团队 Skills
 
 SkillGene 不再作为 Hermes 的模型代理使用。其他机器上的 Hermes 若要使用团队 skills，
-应通过 OpenViking 或文件同步把团队技能拉到本机，再把该目录加入 Hermes 的
-`skills.external_dirs`。
+推荐安装 `skillgene-sync` hook：它会在每次 LLM 调用前从团队 OpenViking 空间拉取
+skills 到本机，并自动把该目录加入 Hermes `skills.external_dirs`。这样
+`skills_list`、`skill_view` 和 `/skills` 都走 Hermes 原生能力。
 
-示例：
+在 Hermes 机器上执行：
+
+```bash
+python skillgene/integrations/hermes_skill_sync/install.py \
+  --viking-endpoint "https://<your-openviking-endpoint>" \
+  --viking-team-api-key "<team-key>" \
+  --viking-root-prefix "skillgene"
+```
+
+默认同步目录为 `<HERMES_HOME>/team_skills/skillgene`，安装脚本会写入：
 
 ```yaml
 skills:
   external_dirs:
-    - /path/to/team/skills
+    - <HERMES_HOME>/team_skills/skillgene
+hooks:
+  pre_llm_call:
+    - command: "python3 <HERMES_HOME>/skills/skillgene-sync/sync_skills.py"
+      timeout: 60
 ```
+
+如果 Hermes 已经在运行，执行 `/reload-skills` 让当前会话刷新 skill 缓存；新会话会自动读取。
 
 如果只想在会话结束后把 Hermes 会话回流给 SkillGene / evolve ingest 服务，可使用下面的
 `skillgene-feed` hook。注意：该 hook 需要目标服务提供 `/ingest_session` 接口。
