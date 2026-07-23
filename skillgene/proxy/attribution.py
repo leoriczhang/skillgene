@@ -13,8 +13,6 @@ import os
 import re
 from typing import Any
 
-from .messages import _normalize_tool_call_name
-
 _READ_TOOL_NAMES = {"read", "file_read", "read_file", "readfile"}
 _HERMES_SKILL_READ_TOOL_NAMES = {"skill_view"}
 _CLAUDE_CODE_SKILL_TOOL_NAMES = {"skill"}
@@ -43,6 +41,10 @@ _SHELL_SKILL_PATH_RE = re.compile(
     r"([~./A-Za-z0-9_\-][^\n\"'`]*?"
     r"(?:SKILL\.md|references/[^\s\"'`]+|scripts/[^\s\"'`]+|assets/[^\s\"'`]+|history/[^\s\"'`]+))"
 )
+
+
+def _normalize_tool_call_name(name: str) -> str:
+    return str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _extract_skill_names(items: list[Any] | None) -> set[str]:

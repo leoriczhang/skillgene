@@ -33,8 +33,7 @@ class SkillGeneConfig:
     # ------------------------------------------------------------------ #
     # Context window                                                       #
     # ------------------------------------------------------------------ #
-    # Prompt budget for the upstream model. The proxy reserves `max_tokens`
-    # (output) from this before truncating history. The token estimate divides
+    # Prompt budget retained for model-testing and validation clients. The token estimate divides
     # char count by 4, which undercounts CJK, so keep some headroom below the
     # model's hard context limit. Default targets modern 256k-context models.
     max_context_tokens: int = 240000

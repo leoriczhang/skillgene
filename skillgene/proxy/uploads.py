@@ -1,9 +1,9 @@
-"""Skill synchronization helpers for the SkillGene proxy.
+"""Skill synchronization helpers for the SkillGene service.
 
-The proxy no longer participates in skill evolution by uploading sessions.
+The service does not upload proxy-originated sessions into evolution.
 Evolution input is accepted only through the evolve server's
 ``/ingest_session`` endpoint (username + session payload). This mixin keeps
-skill pull/reload and background-task drain behavior for proxy runtime use.
+skill pull/reload and background-task drain behavior for service runtime use.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """FastAPI application and route wiring for the proxy.
 
-``RoutesMixin`` builds the ``FastAPI`` app and its endpoints (healthz,
-reload-skills, flush-sessions, models, chat.completions) plus the
-bearer-token auth check. Route bodies delegate to the owning
+``RoutesMixin`` builds the ``FastAPI`` app and its endpoints (console,
+health, skill/user admin, model settings, and internal skill reload) plus the
+bearer-token auth check for internal endpoints. Route bodies delegate to the owning
 :class:`~skillgene.proxy.server.ProxyServer` instance.
 """
 
@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .users_admin import (
@@ -28,8 +28,6 @@ from .users_admin import (
     _upsert_user,
     _verify_password,
 )
-from .messages import _rewrite_new_session_bootstrap_prompt
-from .session import _resolve_session_done, _resolve_turn_type
 from ..config_store import ConfigStore
 from ..skills.hub import SkillHub
 from ..storage import is_not_found_error
@@ -101,7 +99,6 @@ class RoutesMixin:
         @asynccontextmanager
         async def lifespan(_app: FastAPI):
             owner._ready_event.set()
-            owner._start_session_idle_sweeper()
             owner._start_skill_reload_polling()
             try:
                 yield
@@ -418,119 +415,6 @@ class RoutesMixin:
             await owner._pull_skills_from_cloud()
             skill_count = len(owner.skill_manager.get_all_skills()) if owner.skill_manager else 0
             return {"ok": True, "skills": skill_count}
-
-        @app.post("/internal/flush-sessions")
-        async def flush_sessions(
-            request: Request,
-            authorization: Optional[str] = Header(default=None),
-        ):
-            """Close + upload active sessions on demand and wait for uploads.
-
-            Clients (e.g. the eval framework) that don't send an explicit
-            ``session_done`` never trigger ``_close_session``, so a just-finished
-            conversation's turns linger in memory and never reach OpenViking until
-            the idle sweeper fires (~180s) or the process shuts down. Post-run
-            consumers that read the uploaded ``sessions/*.json`` therefore see
-            nothing. This endpoint forces the drain+upload synchronously so a
-            follow-up read is guaranteed to observe the session data.
-
-            Optional body ``{"user_aliases": ["team-a-test1", ...]}`` restricts the
-            flush to sessions recorded for those client identities (matched against
-            ``X-SkillGene-User``); omitting it flushes every active session.
-            """
-            owner = request.app.state.owner
-            await owner._check_auth(authorization)
-            try:
-                body = await request.json()
-            except Exception:
-                body = {}
-            aliases_raw = (body or {}).get("user_aliases")
-            aliases: Optional[set[str]] = None
-            if isinstance(aliases_raw, (list, tuple, set)):
-                aliases = {str(a).strip() for a in aliases_raw if str(a).strip()}
-            flushed = await owner._flush_sessions(aliases)
-            return {"ok": True, "flushed": flushed}
-
-        @app.get("/v1/models")
-        async def list_models(
-            request: Request,
-            authorization: Optional[str] = Header(default=None),
-        ):
-            owner = request.app.state.owner
-            await owner._check_auth(authorization)
-            model_id = owner._served_model
-            return JSONResponse(
-                content={
-                    "object": "list",
-                    "data": [
-                        {
-                            "id": model_id,
-                            "object": "model",
-                            "created": 0,
-                            # wire constant: owned_by matches the OpenViking data
-                            # contract namespace, do not rename
-                            "owned_by": "skillgene",
-                        }
-                    ],
-                }
-            )
-
-        @app.post("/v1/chat/completions")
-        async def chat_completions(
-            request: Request,
-            authorization: Optional[str] = Header(default=None),
-            x_session_id: Optional[str] = Header(default=None),
-            x_turn_type: Optional[str] = Header(default=None),
-            x_session_done: Optional[str] = Header(default=None),
-            # wire constants: X-SkillGene-* request headers are produced by
-            # external Hermes clients; the FastAPI param names encode the header
-            # names, do not rename
-            x_teamskillevolver_user: Optional[str] = Header(default=None),
-            x_teamskillevolver_viking_api_key: Optional[str] = Header(default=None),
-            x_teamskillevolver_viking_account: Optional[str] = Header(default=None),
-            x_teamskillevolver_viking_user: Optional[str] = Header(default=None),
-            x_teamskillevolver_viking_agent_id: Optional[str] = Header(default=None),
-            x_teamskillevolver_viking_customer_id: Optional[str] = Header(default=None),
-            x_teamskillevolver_group_ids: Optional[str] = Header(default=None),
-            x_teamskillevolver_root_prefix: Optional[str] = Header(default=None),
-        ):
-            owner = request.app.state.owner
-            # Update idle tracker so the scheduler knows the user is active
-            owner._mark_request_activity()
-            await owner._check_auth(authorization)
-
-            body = await request.json()
-            incoming_messages = body.get("messages", [])
-            if isinstance(incoming_messages, list):
-                rewritten_messages, _ = _rewrite_new_session_bootstrap_prompt(incoming_messages)
-                body["messages"] = rewritten_messages
-            session_id = x_session_id or body.get("session_id") or ""
-            turn_type = _resolve_turn_type(x_turn_type, body.get("turn_type"), default="main")
-            session_done = _resolve_session_done(x_session_done, body.get("session_done"))
-            # Do not infer session_done from bootstrap text — only explicit
-            # X-Session-Done or body session_done trigger session close.
-            owner._record_session_context(
-                session_id,
-                x_teamskillevolver_user,
-                viking_api_key=x_teamskillevolver_viking_api_key,
-                viking_account=x_teamskillevolver_viking_account,
-                viking_user=x_teamskillevolver_viking_user,
-                viking_agent_id=x_teamskillevolver_viking_agent_id,
-                viking_customer_id=x_teamskillevolver_viking_customer_id,
-                viking_group_id=x_teamskillevolver_group_ids,
-                viking_root_prefix=x_teamskillevolver_root_prefix,
-            )
-
-            stream = bool(body.get("stream", False))
-            result = await owner._handle_request(
-                body,
-                session_id=session_id,
-                turn_type=turn_type,
-                session_done=session_done,
-            )
-            if stream:
-                return StreamingResponse(owner._stream_response(result), media_type="text/event-stream")
-            return JSONResponse(content=result["response"])
 
         return app
 

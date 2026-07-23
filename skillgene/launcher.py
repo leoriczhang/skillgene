@@ -1,8 +1,4 @@
-"""SkillGene service launcher.
-
-Starts the proxy, skill injection, optional PRM side channel,
-and client auto-configuration for the Hermes agent.
-"""
+"""SkillGene service launcher."""
 
 from __future__ import annotations
 
@@ -132,19 +128,15 @@ class Launcher:
 
         wait_until_ready = getattr(server, "wait_until_ready", None)
         if callable(wait_until_ready) and wait_until_ready(timeout_s=30.0):
-            logger.info("[Launcher] proxy ready at http://%s:%d", cfg.proxy_host, cfg.proxy_port)
+            logger.info("[Launcher] service ready at http://%s:%d", cfg.proxy_host, cfg.proxy_port)
         elif callable(wait_until_ready):
             logger.warning(
-                "[Launcher] proxy did not report ready within timeout on http://%s:%d",
+                "[Launcher] service did not report ready within timeout on http://%s:%d",
                 cfg.proxy_host,
                 cfg.proxy_port,
             )
         else:
-            logger.info("[Launcher] proxy server does not expose wait_until_ready(); skipping readiness wait")
-
-        from .integrations import configure_hermes
-
-        configure_hermes(cfg)
+            logger.info("[Launcher] service does not expose wait_until_ready(); skipping readiness wait")
 
         if getattr(cfg, "validation_enabled", False):
             try:

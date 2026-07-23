@@ -4,7 +4,7 @@
 
 SkillGene is a shared skill-library toolkit for coding agents and LLM agents.
 It organizes reusable behavior as standard `SKILL.md` bundles and provides
-local management, shared synchronization, proxy-based recording, and optional
+local management, shared synchronization, a Web console, and optional
 candidate validation.
 
 ## Features
@@ -12,7 +12,6 @@ candidate validation.
 - **Skill library management**: read, create, edit, delete, and package `SKILL.md` skills.
 - **Local and remote sync**: local filesystem storage plus OpenViking-compatible object storage.
 - **Version tracking**: stable skill IDs, content hashes, versions, and update history.
-- **Proxy recording**: OpenAI-compatible proxy service that records sessions and skill signals.
 - **Web console**: built-in React + TypeScript console for skills, users, candidate review, and health checks.
 - **Hermes integration**: `skillgene-feed` can submit Hermes sessions back to a SkillGene service.
 - **Optional validation**: replay candidate skills with an OpenAI-compatible model and PRM scorer.
@@ -78,10 +77,10 @@ skillgene skills list
 skillgene skills pull
 ```
 
-Start the proxy:
+Start the SkillGene service:
 
 ```bash
-skillgene config proxy.port 30000
+skillgene config proxy.port 30000  # service port
 skillgene start --daemon
 skillgene status
 ```
@@ -92,38 +91,23 @@ Open the console:
 http://127.0.0.1:30000/console
 ```
 
-## Connect Hermes on Other Machines
+## Use Team Skills on Other Hermes Machines
 
-If SkillGene proxy is already deployed on one server, Hermes on other machines
-can point its OpenAI-compatible model configuration to that proxy. Hermes model
-requests will then go through SkillGene, which can inject skills, record
-sessions, and keep the shared skill library synchronized.
+SkillGene is no longer used as a Hermes model proxy. To use team skills on
+other Hermes machines, pull or sync the team skill directory locally, then add
+that directory to Hermes `skills.external_dirs`.
 
-Edit `$HERMES_HOME/config.yaml` on the Hermes machine:
+Example:
 
 ```yaml
-model:
-  provider: custom
-  base_url: "http://<skillgene-host>:<proxy-port>/v1"
-  default: "skillgene-model"
-  api_key: "<optional-proxy-api-key>"
+skills:
+  external_dirs:
+    - /path/to/team/skills
 ```
 
-If the SkillGene proxy has no `proxy.api_key`, `api_key` may be empty or omitted.
-
-Verify connectivity:
-
-```bash
-curl http://<skillgene-host>:<proxy-port>/healthz
-curl http://<skillgene-host>:<proxy-port>/v1/models
-```
-
-Then start Hermes and run a normal conversation. If Hermes is already running,
-restart it or reload its model configuration.
-
-Optional: if you do not want model traffic to go through the proxy and only
-want to submit Hermes sessions after each conversation, use the `skillgene-feed`
-hook below. The hook target must expose an `/ingest_session` endpoint.
+If you only want to submit Hermes sessions after each conversation, use the
+`skillgene-feed` hook below. The hook target must expose an `/ingest_session`
+endpoint.
 
 ## OpenViking / Object Storage
 
@@ -199,7 +183,7 @@ skillgene/
 ├── skillgene/
 │   ├── cli/              # skillgene command line
 │   ├── config_store/     # local config store
-│   ├── proxy/            # OpenAI-compatible proxy and session recording
+│   ├── proxy/            # Web service routes, console, and admin APIs
 │   ├── skills/           # SKILL.md management, bundling, sync
 │   ├── storage/          # local / OpenViking storage backends
 │   ├── integrations/     # Hermes integration

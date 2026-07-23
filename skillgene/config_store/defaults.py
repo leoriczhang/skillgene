@@ -177,12 +177,7 @@ def resolve_skills_dir(skills_dir: Any) -> str:
 
 
 def _default_served_model_name(llm_model_id: str) -> str:
-    """Return a safe proxy-facing model name for agent integrations.
-
-    GPT-5-style names trigger Hermes' Responses API mode. The proxy does not
-    want to expose the upstream model name directly because the proxy surface
-    may not match the upstream protocol. Use a stable proxy model name instead.
-    """
+    """Return the stable service-facing model label kept for compatibility."""
     raw = str(llm_model_id or "").strip()
     if not raw:
         return "skillgene-model"

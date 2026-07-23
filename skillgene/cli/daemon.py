@@ -1,7 +1,7 @@
 """
 Daemon lifecycle commands: start / stop / status.
 
-Handles foreground and background (detached) proxy startup, health probing,
+Handles foreground and background (detached) service startup, health probing,
 PID bookkeeping, and graceful shutdown.
 """
 
@@ -181,7 +181,7 @@ def _spawn_daemon_process(
     "--port",
     type=int,
     default=None,
-    help="Override proxy port for this session.",
+    help="Override service port for this session.",
 )
 @click.option(
     "--daemon",
@@ -197,7 +197,7 @@ def _spawn_daemon_process(
     help="Log file used with --daemon (default: ~/.skillgene/skillgene.log).",
 )
 def start(port: int | None, daemon: bool, log_file: str | None):
-    """Start SkillGene (proxy + skill injection + optional PRM)."""
+    """Start the SkillGene service (console + skill sync + optional validation)."""
     import asyncio
 
     from ..log_color import setup_logging
@@ -297,6 +297,6 @@ def status():
 
     healthy = _healthz_ready(port, timeout=2.0)
     if healthy:
-        click.echo(f"SkillGene: running  (PID={pid}, proxy=:{port})")
+        click.echo(f"SkillGene: running  (PID={pid}, service=:{port})")
     else:
-        click.echo(f"SkillGene: starting (PID={pid}, proxy=:{port})")
+        click.echo(f"SkillGene: starting (PID={pid}, service=:{port})")

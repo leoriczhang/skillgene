@@ -3,7 +3,7 @@
 [English](./README.en.md)
 
 SkillGene 是一个面向 Agent 的共享技能库工具。它围绕标准 `SKILL.md`
-组织技能，提供本地管理、团队同步、代理录制和可选验证能力，适合把真实
+组织技能，提供本地管理、团队同步、Web 控制台和可选验证能力，适合把真实
 Agent 使用经验沉淀成可复用的团队技能资产。
 
 ## 能力
@@ -11,7 +11,6 @@ Agent 使用经验沉淀成可复用的团队技能资产。
 - **技能库管理**：读取、创建、编辑、删除和打包 `SKILL.md` 技能。
 - **本地/远端同步**：支持本地目录和 OpenViking 兼容对象存储。
 - **技能版本记录**：为技能生成稳定 ID，并记录版本、内容 hash 和历史。
-- **代理录制**：可启动 OpenAI 兼容代理服务，记录会话与技能使用信号。
 - **Web 控制台**：内置 React + TypeScript 控制台，可管理技能、用户、候选评审和系统健康。
 - **Hermes 接入**：提供 `skillgene-feed`，把 Hermes 会话回流到 SkillGene 服务。
 - **可选验证**：通过 OpenAI 兼容模型和 PRM 对候选技能进行回放评估。
@@ -77,10 +76,10 @@ skillgene skills list
 skillgene skills pull
 ```
 
-启动代理服务：
+启动 SkillGene 服务：
 
 ```bash
-skillgene config proxy.port 30000
+skillgene config proxy.port 30000  # 服务端口
 skillgene start --daemon
 skillgene status
 ```
@@ -91,36 +90,22 @@ skillgene status
 http://127.0.0.1:30000/console
 ```
 
-## 连接其他机器上的 Hermes
+## 在其他机器上使用团队 Skills
 
-如果你已经在一台服务器上部署了 SkillGene proxy，其他机器上的 Hermes 可以直接把
-OpenAI 兼容模型配置指向这个 proxy。这样 Hermes 的模型请求会经过 SkillGene，
-SkillGene 会负责技能注入、会话记录和共享技能同步。
+SkillGene 不再作为 Hermes 的模型代理使用。其他机器上的 Hermes 若要使用团队 skills，
+应通过 OpenViking 或文件同步把团队技能拉到本机，再把该目录加入 Hermes 的
+`skills.external_dirs`。
 
-在 Hermes 机器上修改 `$HERMES_HOME/config.yaml`：
+示例：
 
 ```yaml
-model:
-  provider: custom
-  base_url: "http://<skillgene-host>:<proxy-port>/v1"
-  default: "skillgene-model"
-  api_key: "<optional-proxy-api-key>"
+skills:
+  external_dirs:
+    - /path/to/team/skills
 ```
 
-如果 SkillGene proxy 没有配置 `proxy.api_key`，`api_key` 可以留空或省略。
-
-验证连接：
-
-```bash
-curl http://<skillgene-host>:<proxy-port>/healthz
-curl http://<skillgene-host>:<proxy-port>/v1/models
-```
-
-然后启动 Hermes，执行一次普通对话。若 Hermes 已在运行，可重启 Hermes 或重新加载模型配置。
-
-可选：如果不想让模型流量经过 proxy，只想在会话结束后把 Hermes 会话回流给一个
-SkillGene / evolve ingest 服务，可使用下面的 `skillgene-feed` hook。注意：该 hook
-需要目标服务提供 `/ingest_session` 接口。
+如果只想在会话结束后把 Hermes 会话回流给 SkillGene / evolve ingest 服务，可使用下面的
+`skillgene-feed` hook。注意：该 hook 需要目标服务提供 `/ingest_session` 接口。
 
 ## OpenViking / 对象存储
 
@@ -194,7 +179,7 @@ skillgene/
 ├── skillgene/
 │   ├── cli/              # skillgene 命令行
 │   ├── config_store/     # 本地配置读写
-│   ├── proxy/            # OpenAI 兼容代理与会话录制
+│   ├── proxy/            # Web 服务路由、控制台和管理接口
 │   ├── skills/           # SKILL.md 管理、打包、同步
 │   ├── storage/          # local / OpenViking 存储后端
 │   ├── integrations/     # Hermes 集成

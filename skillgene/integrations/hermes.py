@@ -1,4 +1,4 @@
-"""Hermes integration: auto-configures the Hermes CLI to use the proxy."""
+"""Hermes integration helpers for SkillGene-managed skills directories."""
 
 from __future__ import annotations
 
@@ -173,25 +173,26 @@ def _latest_hermes_backup_path() -> Path | None:
 
 
 def configure_hermes(cfg: "SkillGeneConfig") -> None:
-    """Auto-configure Hermes to route model traffic through the proxy."""
+    """Ensure Hermes can discover the SkillGene-managed skills directory.
+
+    This function intentionally does not modify Hermes model settings. SkillGene
+    no longer acts as an LLM proxy.
+    """
     config_path = _HERMES_HOME / "config.yaml"
-    model_id = cfg.served_model_name or cfg.llm_model_id or "skillgene-model"
-    api_key = cfg.proxy_api_key or "skillgene"
-    base_url = f"http://127.0.0.1:{cfg.proxy_port}/v1"
     _prepare_hermes_skills_dir(cfg)
 
     data = _load_yaml_mapping(config_path, "Hermes")
-    model = data.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if isinstance(model, str) and model.strip() else {}
-
-    model["provider"] = "custom"
-    model["base_url"] = base_url
-    model["default"] = model_id
-    model["api_key"] = api_key
-    model["api_mode"] = ""
-
-    data["model"] = model
+    expected_skills_dir = str(Path(str(getattr(cfg, "skills_dir", "") or _HERMES_SKILLS_DIR)).expanduser())
+    skills = data.get("skills")
+    if not isinstance(skills, dict):
+        skills = {}
+    external_dirs = skills.get("external_dirs")
+    if not isinstance(external_dirs, list):
+        external_dirs = []
+    if expected_skills_dir not in [str(item) for item in external_dirs]:
+        external_dirs.append(expected_skills_dir)
+    skills["external_dirs"] = external_dirs
+    data["skills"] = skills
     _backup_hermes_config_if_changed(config_path, _yaml_mapping_to_text(data))
     _write_yaml_mapping_atomic(config_path, data, "Hermes")
 
@@ -199,9 +200,6 @@ def configure_hermes(cfg: "SkillGeneConfig") -> None:
 def inspect_hermes_config(cfg: "SkillGeneConfig") -> dict[str, object]:
     """Return a diagnostic snapshot of the local Hermes integration state."""
     config_path = _HERMES_HOME / "config.yaml"
-    expected_model = cfg.served_model_name or cfg.llm_model_id or "skillgene-model"
-    expected_base_url = f"http://127.0.0.1:{cfg.proxy_port}/v1"
-    expected_api_key = cfg.proxy_api_key or "skillgene"
     expected_skills_dir = Path(str(getattr(cfg, "skills_dir", "") or _HERMES_SKILLS_DIR)).expanduser()
 
     data = _load_yaml_mapping(config_path, "Hermes")
@@ -209,32 +207,27 @@ def inspect_hermes_config(cfg: "SkillGeneConfig") -> dict[str, object]:
     if not isinstance(model, dict):
         model = {"default": model} if isinstance(model, str) and model else {}
 
-    configured_provider = str(model.get("provider", "") or "")
-    configured_base_url = str(model.get("base_url", "") or "")
-    configured_default = str(model.get("default", "") or "")
-    configured_api_key = str(model.get("api_key", "") or "")
+    skills = data.get("skills") if isinstance(data, dict) else {}
+    if not isinstance(skills, dict):
+        skills = {}
+    external_dirs = [str(item) for item in (skills.get("external_dirs") or [])]
 
     backup_path = _latest_hermes_backup_path()
-    proxy_match = (
-        configured_provider == "custom"
-        and configured_base_url == expected_base_url
-        and configured_default == expected_model
-        and configured_api_key == expected_api_key
-    )
+    skills_dir_mapped = str(expected_skills_dir) in external_dirs
     legacy_present = _LEGACY_SKILLS_DIR.is_dir()
     uses_default_skills_dir = expected_skills_dir == _HERMES_SKILLS_DIR
     issues: list[str] = []
     notes: list[str] = [
-        "This integration rewrites Hermes-local config.",
-        "Hermes session capture relies on explicit session headers.",
+        "This integration only maps SkillGene skills into Hermes external_dirs.",
+        "It does not route Hermes model traffic through SkillGene.",
     ]
     next_steps: list[str] = []
 
     if not config_path.exists():
         issues.append("Hermes config is missing: ~/.hermes/config.yaml")
-    if not proxy_match:
-        issues.append("Hermes model routing is not pointing at the local proxy.")
-        next_steps.append("Start the proxy once so it can rewrite ~/.hermes/config.yaml.")
+    if not skills_dir_mapped:
+        issues.append("Hermes skills.external_dirs does not include the SkillGene skills directory.")
+        next_steps.append("Run `skillgene doctor hermes` after starting SkillGene, or add the directory manually.")
     if not expected_skills_dir.is_dir():
         issues.append(f"Hermes skills directory is missing: {expected_skills_dir}")
         next_steps.append(f"Create or prepare the Hermes skills directory: {expected_skills_dir}")
@@ -245,7 +238,7 @@ def inspect_hermes_config(cfg: "SkillGeneConfig") -> dict[str, object]:
         )
     if not backup_path:
         next_steps.append(
-            "Run the proxy once before relying on `skillgene restore hermes`, so a backup can be created."
+            "Run SkillGene once before relying on `skillgene restore hermes`, so a backup can be created."
         )
 
     return {
@@ -253,13 +246,9 @@ def inspect_hermes_config(cfg: "SkillGeneConfig") -> dict[str, object]:
         "config_path": str(config_path),
         "config_exists": config_path.exists(),
         "integration_scope": "hermes-only",
-        "expected_model": expected_model,
-        "expected_base_url": expected_base_url,
-        "configured_provider": configured_provider or "(unset)",
-        "configured_base_url": configured_base_url or "(unset)",
-        "configured_model": configured_default or "(unset)",
-        "proxy_match": proxy_match,
         "expected_skills_dir": str(expected_skills_dir),
+        "skills_external_dirs": external_dirs,
+        "skills_dir_mapped": skills_dir_mapped,
         "skills_dir_exists": expected_skills_dir.is_dir(),
         "skills_dir_mode": "hermes-default" if uses_default_skills_dir else "custom",
         "legacy_skills_dir": str(_LEGACY_SKILLS_DIR),

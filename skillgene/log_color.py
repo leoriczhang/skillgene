@@ -4,7 +4,6 @@ import logging
 import re
 
 LINE_PREFIX_RE = re.compile(r"^(.*?\|\s+(INFO|WARNING|ERROR|DEBUG)\s+\|\s+([^|]+)\|\s+)(.*)$")
-POST_OK_RE = re.compile(r'"POST /v1/chat/completions HTTP/1\.1"\s+200 OK')
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -36,22 +35,8 @@ def _colorize_message(message: str, *, level: str, logger_name: str) -> str:
     text = message
     if "[SkillManager]" in text:
         return f"{ANSI_BOLD}{ANSI_MAGENTA}{text}{ANSI_RESET}"
-    if "[Proxy]" in text:
-        if "context truncated" in text:
-            return f"{ANSI_BOLD}{ANSI_RED}{text}{ANSI_RESET}"
-        if "tool_calls:" in text or "parsed tool_calls after extract" in text:
-            return f"{ANSI_BOLD}{ANSI_CYAN}{text}{ANSI_RESET}"
-        if "session=" in text and "done → cleaned up" in text:
-            return f"{ANSI_BOLD}{ANSI_YELLOW}{text}{ANSI_RESET}"
-        if "[main]" in text.lower() or " MAIN session=" in text:
-            return f"{ANSI_BOLD}{ANSI_GREEN}{text}{ANSI_RESET}"
-        if "[side]" in text.lower() or " SIDE session=" in text:
-            return f"{ANSI_BOLD}{ANSI_BLUE}{text}{ANSI_RESET}"
-        if "proxy ready" in text:
-            return f"{ANSI_BOLD}{ANSI_CYAN}{text}{ANSI_RESET}"
-        return f"{ANSI_GREEN}{text}{ANSI_RESET}"
-    if POST_OK_RE.search(text):
-        return f"{ANSI_BOLD}{ANSI_MAGENTA}{text}{ANSI_RESET}"
+    if "SkillGene service ready" in text:
+        return f"{ANSI_BOLD}{ANSI_CYAN}{text}{ANSI_RESET}"
     if text.startswith("======================================================================"):
         return f"{ANSI_CYAN}{text}{ANSI_RESET}"
     if '"GET /docs HTTP/1.1" 200 OK' in text:
