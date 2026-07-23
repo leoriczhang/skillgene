@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![English](https://img.shields.io/badge/README-English-111827.svg)](./README.en.md)
 
-**把真实 Agent 使用经验沉淀为可复用、可同步、可审计的 `SKILL.md` 团队资产。**
+**把真实 Agent 使用经验沉淀为可复用、可同步、可验证的 `SKILL.md` 团队资产。**
 
 </div>
 
@@ -21,11 +21,21 @@
 Agent 已经能完成复杂任务，但团队技能通常还停留在“某台机器上的一组文件”：
 
 - **技能难共享**：同一条经验在不同成员、不同机器、不同 Agent 里反复复制。
+- **资产难分层**：个人偏好、客户事实、团队 SOP 容易混在一起，带来隐私和污染风险。
 - **版本难追踪**：技能来源、发布人、版本状态和当前团队空间内容，很难持续对齐。
 - **质量难判断**：一个技能看起来写得很好，但是否真的改善任务结果，缺少证据。
-- **接入难标准化**：不同 Agent 的技能目录、加载时机和团队同步方式各不相同。
 
-**SkillGene 面向团队技能资产的完整生命周期：管理、同步、归因与验证。**
+**SkillGene 不是让 Agent 记住更多信息，而是建立从真实 session 到团队能力的安全流水线。**
+它把分散会话转成可比较的 evidence，区分个人与团队资产，再用回放验证和版本治理发布团队技能。
+
+---
+
+## 设计原则
+
+- **中心化采集**：保留 session、工具调用、成功策略和失败原因，让系统看见跨人共性。
+- **分层沉淀**：先判断是否可共享，再判断应写成 `skill` 还是 `memory`；个人资产隔离，团队资产受控发布。
+- **验证发布**：团队 `SKILL.md` 必须经过聚合、脱敏、去重、回放验证、版本化和回滚门控。
+
 Hermes 等 Agent 保持原生运行方式；SkillGene 通过同步目录和 Hook 把团队技能带到 Agent 原生技能系统里。
 
 ---
@@ -229,7 +239,6 @@ sequenceDiagram
 
 ```bash
 python skillgene/integrations/hermes_skill_sync/install.py \
-  --viking-endpoint "https://<your-openviking-endpoint>" \
   --viking-team-api-key "<team-key>" \
   --viking-root-prefix "skillgene"
 ```
@@ -263,16 +272,17 @@ hooks:
 
 ## OpenViking / 对象存储
 
-远端同步通过对象存储抽象完成。OpenViking 兼容配置示例：
+远端同步通过对象存储抽象完成。默认 endpoint 使用火山托管 OpenViking：
 
 ```bash
 skillgene config sharing.enabled true
 skillgene config sharing.backend viking
-skillgene config sharing.viking_endpoint "https://<your-openviking-endpoint>"
 skillgene config sharing.viking_team_api_key "<team-key>"
 skillgene config sharing.viking_personal_api_key "<personal-key>"
 skillgene config sharing.viking_root_prefix "skillgene"
 ```
+
+如果需要自部署 OpenViking Server，请参考 [volcengine/OpenViking](https://github.com/volcengine/OpenViking)，并通过 `skillgene config sharing.viking_endpoint "<your-server-url>"` 覆盖默认服务地址。
 
 不要把真实 API Key 写入仓库。建议使用本机配置、环境变量或部署系统的 Secret 管理能力注入。
 

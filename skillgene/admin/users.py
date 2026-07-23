@@ -14,11 +14,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from skillgene.config import VOLCENGINE_OPENVIKING_ENDPOINT
 from skillgene.skills.bundle import write_skill_bundle
 from skillgene.skills.hub import SkillHub
 
 DEFAULT_USERS_PATH = Path.home() / ".skillgene" / "users.json"
-DEFAULT_OPENVIKING_ENDPOINT = ""
+DEFAULT_OPENVIKING_ENDPOINT = VOLCENGINE_OPENVIKING_ENDPOINT
 DEFAULT_ACCOUNT = "default"
 DEFAULT_USER = "default"
 DEFAULT_AGENT = "skillgene"

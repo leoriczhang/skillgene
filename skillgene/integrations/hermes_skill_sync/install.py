@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from skillgene.config import VOLCENGINE_OPENVIKING_ENDPOINT
+
 SKILL_NAME = "skillgene-sync"
 BUNDLE_FILES = ("SKILL.md", "sync_skills.py")
 ALLOWLIST_FILENAME = "shell-hooks-allowlist.json"
@@ -206,7 +208,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-hook", action="store_true", help="install files and config only, skip hook wiring")
     parser.add_argument("--no-approve", action="store_true", help="skip scoped allowlist approval")
     parser.add_argument("--backend", default="viking", choices=["viking", "local"], help="team skill backend")
-    parser.add_argument("--viking-endpoint", default="", help="OpenViking endpoint")
+    parser.add_argument(
+        "--viking-endpoint",
+        default=VOLCENGINE_OPENVIKING_ENDPOINT,
+        help="OpenViking endpoint",
+    )
     parser.add_argument("--viking-team-api-key", default="", help="team OpenViking API key")
     parser.add_argument("--viking-api-key", default="", help="fallback OpenViking API key")
     parser.add_argument("--viking-account", default="", help="OpenViking account")

@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![中文](https://img.shields.io/badge/README-中文-111827.svg)](./README.md)
 
-**Turn real agent experience into reusable, synced, auditable `SKILL.md` assets for your team.**
+**Turn real agent experience into reusable, synced, validated `SKILL.md` assets for your team.**
 
 </div>
 
@@ -21,11 +21,21 @@
 Agents can already complete complex tasks, but team skills often remain a loose set of files on one machine:
 
 - **Hard to share**: the same experience gets copied across members, machines, and agents.
+- **Hard to separate**: personal preferences, customer facts, and team SOPs can mix, creating privacy and contamination risk.
 - **Hard to version**: skill origin, publisher, version state, and live team content are difficult to keep aligned.
 - **Hard to trust**: a skill may look polished, but there is little evidence that it improves task outcomes.
-- **Hard to standardize**: different agents use different skill directories, loading moments, and team-sync patterns.
 
-**SkillGene covers the lifecycle of team skill assets: management, sync, attribution, and validation.**
+**SkillGene is not about making agents remember more; it is a safe pipeline from real sessions to team capability.**
+It turns scattered sessions into comparable evidence, separates personal and team assets, and publishes team skills through replay validation and version governance.
+
+---
+
+## Design Principles
+
+- **Central evidence**: retain sessions, tool calls, success strategies, and failure reasons so cross-user patterns become visible.
+- **Layered assets**: decide whether knowledge is shareable before deciding whether it should become `skill` or `memory`; personal assets stay isolated, team assets are published deliberately.
+- **Validated release**: team `SKILL.md` assets pass aggregation, redaction, deduplication, replay validation, versioning, and rollback gates.
+
 Hermes and other agents keep their native runtime model. SkillGene delivers team skills through synced directories and hooks, so the agent's native skill system remains in control.
 
 ---
@@ -229,7 +239,6 @@ Install example:
 
 ```bash
 python skillgene/integrations/hermes_skill_sync/install.py \
-  --viking-endpoint "https://<your-openviking-endpoint>" \
   --viking-team-api-key "<team-key>" \
   --viking-root-prefix "skillgene"
 ```
@@ -264,16 +273,17 @@ and preserved in the session archive and console details.
 
 ## OpenViking / Object Storage
 
-Remote sync uses SkillGene's object-store abstraction. Example OpenViking-compatible configuration:
+Remote sync uses SkillGene's object-store abstraction. The default endpoint uses VolcEngine-hosted OpenViking:
 
 ```bash
 skillgene config sharing.enabled true
 skillgene config sharing.backend viking
-skillgene config sharing.viking_endpoint "https://<your-openviking-endpoint>"
 skillgene config sharing.viking_team_api_key "<team-key>"
 skillgene config sharing.viking_personal_api_key "<personal-key>"
 skillgene config sharing.viking_root_prefix "skillgene"
 ```
+
+For self-hosted OpenViking Server deployments, see [volcengine/OpenViking](https://github.com/volcengine/OpenViking) and override the default service URL with `skillgene config sharing.viking_endpoint "<your-server-url>"`.
 
 Do not commit real API keys. Use local configuration, environment variables, or your deployment platform's secret manager.
 

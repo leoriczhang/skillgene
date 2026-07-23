@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+VOLCENGINE_OPENVIKING_ENDPOINT = "https://api.vikingdb.cn-beijing.volces.com/openviking"
+
 
 @dataclass
 class SkillGeneConfig:
@@ -83,7 +85,7 @@ class SkillGeneConfig:
     sharing_session_backend: str = ""
 
     # OpenViking backend (sharing.backend = "viking").
-    sharing_viking_endpoint: str = ""
+    sharing_viking_endpoint: str = VOLCENGINE_OPENVIKING_ENDPOINT
     # Backward-compatible fallback key. Prefer the scoped keys below when both
     # personal and team OpenViking spaces are configured.
     sharing_viking_api_key: str = ""

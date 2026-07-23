@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..config import VOLCENGINE_OPENVIKING_ENDPOINT
+
 CONFIG_DIR = Path.home() / ".skillgene"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 _DEFAULT_SKILLS_DIR = CONFIG_DIR / "skills"
@@ -51,7 +53,7 @@ _DEFAULTS: dict = {
         "local_root": "",
         "skill_backend": "",
         "session_backend": "",
-        "viking_endpoint": "",
+        "viking_endpoint": VOLCENGINE_OPENVIKING_ENDPOINT,
         # Backward-compatible fallback. Prefer the scoped keys when the caller
         # has separate personal and team OpenViking credentials.
         "viking_api_key": "",
@@ -130,7 +132,17 @@ def _infer_sharing_backend(sharing: dict[str, Any]) -> str:
         return backend
     if sharing.get("local_root"):
         return "local"
-    if sharing.get("viking_endpoint"):
+    has_viking_key = any(
+        sharing.get(key)
+        for key in (
+            "viking_api_key",
+            "viking_personal_api_key",
+            "viking_team_api_key",
+            "viking_user_api_key",
+            "viking_resources_api_key",
+        )
+    )
+    if sharing.get("viking_endpoint") and (sharing.get("enabled") or has_viking_key):
         return "viking"
     return ""
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..config import SkillGeneConfig
+from ..config import SkillGeneConfig, VOLCENGINE_OPENVIKING_ENDPOINT
 from .defaults import (
     _DEFAULT_SKILLS_DIR,
     _DEFAULTS,
@@ -150,7 +150,7 @@ class ConfigStore:
             sharing_local_root=sharing_local_root,
             sharing_skill_backend=sharing_skill_backend,
             sharing_session_backend=sharing_session_backend,
-            sharing_viking_endpoint=str(sharing.get("viking_endpoint", "") or ""),
+            sharing_viking_endpoint=str(sharing.get("viking_endpoint", "") or VOLCENGINE_OPENVIKING_ENDPOINT),
             sharing_viking_api_key=str(sharing.get("viking_api_key", "") or ""),
             sharing_viking_personal_api_key=str(
                 sharing.get("viking_personal_api_key", "")
@@ -257,7 +257,7 @@ class ConfigStore:
                     or ""
                 )
                 lines += [
-                    f"sharing.viking_endpoint: {sharing.get('viking_endpoint', '') or '(default)'}",
+                    f"sharing.viking_endpoint: {sharing.get('viking_endpoint', '') or VOLCENGINE_OPENVIKING_ENDPOINT}",
                     f"sharing.viking_root_prefix: {sharing.get('viking_root_prefix', '') or 'skillgene'}",
                     f"sharing.viking_personal_api_key: {'present' if personal_key else 'missing'}",
                     f"sharing.viking_team_api_key: {'present' if team_key else 'missing'}",

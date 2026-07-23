@@ -122,18 +122,20 @@ class SkillHub:
             viking_api_key = personal_viking_api_key or legacy_viking_api_key
         else:
             viking_api_key = team_viking_api_key or legacy_viking_api_key
+        has_viking_key = bool(viking_api_key)
+        sharing_enabled = bool(getattr(config, "sharing_enabled", False))
 
         if allow_none:
             resolved = normalize_backend(backend, endpoint=endpoint, local_root=local_root)
             if not resolved and local_root:
                 resolved = "local"
-            if not resolved and viking_endpoint:
+            if not resolved and viking_endpoint and (sharing_enabled or has_viking_key):
                 resolved = "viking"
             if not resolved:
                 return None
             backend = resolved
         else:
-            if backend == "viking" or (not backend and viking_endpoint):
+            if backend == "viking" or (not backend and viking_endpoint and (sharing_enabled or has_viking_key)):
                 backend = "viking"
             backend = backend or ("local" if local_root else "")
 
