@@ -115,6 +115,7 @@ export default function SessionModal({
 
 function DetailBody({ d }: { d: SessionDetail | null }) {
   const m = d?.meta || {};
+  const metrics = d?.metrics || {};
   const turns = d?.turns || [];
   const turnsPager = usePagedItems(turns);
   if (!d) return null;
@@ -132,6 +133,29 @@ function DetailBody({ d }: { d: SessionDetail | null }) {
           <span>{m.num_turns != null ? m.num_turns : "-"} 轮</span>
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {[
+          ["交互轮次", metrics.interaction_turns ?? m.num_turns ?? 0],
+          ["工具调用", metrics.tool_call_count ?? 0],
+          ["Total Tokens", metrics.total_tokens ?? 0],
+          ["API 调用", metrics.api_call_count ?? 0],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-lg border border-border bg-surface-subtle p-2.5">
+            <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
+            <div className="mt-1 text-lg font-bold">{Number(value).toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+      <SkillPills title="Injected Skills（本轮系统提示词实际暴露）" skills={d.injected_skills || []} />
+      <SkillPills title="Used Skills（实际调用 skill_view）" skills={d.used_skills || []} tone="green" />
+      {d.system_prompt && (
+        <details className="rounded-lg border border-border p-3">
+          <summary className="cursor-pointer text-xs font-semibold">查看完整 System Prompt</summary>
+          <pre className="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
+            {d.system_prompt}
+          </pre>
+        </details>
+      )}
       {!d.turns_available || !turns.length ? (
         <Empty>
           此会话已被消费且早于内容归档上线，仅存元数据（无正文可回看）。此后新消费的会话都会保留正文。
@@ -147,6 +171,8 @@ function DetailBody({ d }: { d: SessionDetail | null }) {
                 <div className="mb-1.5 text-[11px] text-muted-foreground">
                   第 {t.turn_num != null ? t.turn_num : "?"} 轮
                 </div>
+                <SkillPills title="Injected" skills={t.injected_skills || []} compact />
+                <SkillPills title="Used" skills={t.used_skills || []} tone="green" compact />
                 {t.prompt_text && (
                   <div className="bubble user">
                     <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
@@ -163,12 +189,62 @@ function DetailBody({ d }: { d: SessionDetail | null }) {
                     {t.response_text}
                   </div>
                 )}
+                {!!t.tool_calls?.length && (
+                  <div className="mt-2 rounded-lg border border-border bg-background/60 p-2.5">
+                    <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">
+                      工具调用（{t.tool_calls.length}）
+                    </div>
+                    {t.tool_calls.map((call, callIndex) => (
+                      <div key={call.id || callIndex} className="mb-1 font-mono text-[11px] break-all">
+                        {call.function?.name || "unknown"}({String(call.function?.arguments || "")})
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!!t.tool_results?.length && (
+                  <details className="mt-2 rounded-lg border border-border p-2.5">
+                    <summary className="cursor-pointer text-[11px] font-semibold">
+                      Tool Results（{t.tool_results.length}）
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      {t.tool_results.map((result, resultIndex) => (
+                        <pre key={`${result.tool_call_id || "result"}-${resultIndex}`} className={cn("max-h-[180px] overflow-auto whitespace-pre-wrap text-[11px]", result.has_error && "text-destructive")}>
+                          [{result.tool_name || "tool"}] {result.content || ""}
+                        </pre>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
             ))}
           </ListViewport>
           <PaginationControls {...turnsPager} onPageChange={turnsPager.setPage} />
         </>
       )}
+    </div>
+  );
+}
+
+function SkillPills({
+  title,
+  skills,
+  tone = "blue",
+  compact = false,
+}: {
+  title: string;
+  skills: string[];
+  tone?: "blue" | "green";
+  compact?: boolean;
+}) {
+  if (!skills.length) return compact ? null : (
+    <div className="text-xs text-muted-foreground">{title}：无</div>
+  );
+  return (
+    <div className={compact ? "mb-2" : ""}>
+      <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">{title}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {skills.map((skill) => <Pill key={skill} tone={tone}>{skill}</Pill>)}
+      </div>
     </div>
   );
 }

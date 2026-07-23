@@ -89,6 +89,18 @@ export interface EvalResult {
     no_regression?: boolean;
     error?: string;
     cases?: ReplayCase[];
+    efficiency?: {
+      score?: number;
+      improved_dimensions?: string[];
+      regressed_dimensions?: string[];
+      dimensions?: Record<string, {
+        baseline: number;
+        candidate: number;
+        delta: number;
+        reduction_ratio: number;
+        winner: "candidate" | "baseline" | "tie";
+      }>;
+    };
   };
 }
 
@@ -98,6 +110,11 @@ export interface ReplaySide {
   instruction?: string;
   session_id?: string;
   turn_num?: number | null;
+  interaction_turns?: number | null;
+  tool_call_count?: number | null;
+  total_tokens?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
 }
 export interface ReplayCase {
   baseline?: ReplaySide;
@@ -125,10 +142,37 @@ export interface SessionDetail {
   };
   turns_available?: boolean;
   turns_source?: string;
+  system_prompt?: string;
+  injected_skills?: string[];
+  used_skills?: string[];
+  metrics?: {
+    interaction_turns?: number;
+    message_count?: number;
+    tool_call_count?: number;
+    api_call_count?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_tokens?: number;
+    cache_write_tokens?: number;
+    reasoning_tokens?: number;
+    total_tokens?: number;
+  };
   turns?: {
     turn_num?: number | null;
     prompt_text?: string;
     response_text?: string;
+    injected_skills?: string[];
+    used_skills?: string[];
+    tool_calls?: {
+      id?: string;
+      function?: { name?: string; arguments?: string };
+    }[];
+    tool_results?: {
+      tool_call_id?: string;
+      tool_name?: string;
+      content?: string;
+      has_error?: boolean;
+    }[];
   }[];
 }
 

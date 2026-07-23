@@ -18,6 +18,12 @@ const VERIFY_LABELS: Record<string, string> = {
   safe_to_publish: "可安全发布",
 };
 
+const EFFICIENCY_LABELS: Record<string, string> = {
+  interaction_turns: "交互轮次",
+  tool_call_count: "工具调用",
+  total_tokens: "Tokens",
+};
+
 function bar(v?: number | null) {
   const pct = v == null || isNaN(Number(v)) ? 0 : Math.max(0, Math.min(1, Number(v))) * 100;
   const cls = v == null ? "" : Number(v) >= 0.75 ? "good" : Number(v) < 0.5 ? "bad" : "";
@@ -86,6 +92,7 @@ export default function CandidateModal({
   const rep = ev?.replay || {};
   const ver = ev?.verification || {};
   const replayCases = rep.cases || [];
+  const efficiencyDimensions = rep.efficiency?.dimensions || {};
   const replayPager = usePagedItems(replayCases);
   const thr =
     cand?.min_score != null
@@ -284,6 +291,41 @@ export default function CandidateModal({
             }
           />
         </div>
+
+        {Object.keys(efficiencyDimensions).length > 0 && (
+          <>
+            <SecTitle>⚡ A/B 效率对比</SecTitle>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="bg-surface-subtle text-muted-foreground">
+                    {["指标", "基线", "候选", "减少量", "结果"].map((label) => (
+                      <th key={label} className="px-3 py-2 text-left font-semibold">{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(efficiencyDimensions).map(([key, metric]) => (
+                    <tr key={key} className="border-t border-border">
+                      <td className="px-3 py-2 font-semibold">{EFFICIENCY_LABELS[key] || key}</td>
+                      <td className="px-3 py-2">{Number(metric.baseline || 0).toLocaleString()}</td>
+                      <td className="px-3 py-2">{Number(metric.candidate || 0).toLocaleString()}</td>
+                      <td className={cn("px-3 py-2 font-bold", metric.delta > 0 && "text-success", metric.delta < 0 && "text-destructive")}>
+                        {metric.delta > 0 ? "-" : metric.delta < 0 ? "+" : ""}
+                        {Math.abs(Number(metric.delta || 0)).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Pill tone={metric.winner === "candidate" ? "green" : metric.winner === "baseline" ? "red" : "gray"}>
+                          {metric.winner === "candidate" ? "候选更优" : metric.winner === "baseline" ? "基线更优" : "持平"}
+                        </Pill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
         <SecTitle>🛡 Verify 校验明细</SecTitle>
         {verifyHtml}

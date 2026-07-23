@@ -247,6 +247,14 @@ def build_sandbox(base: Path, branch: str, harness: dict[str, str],
 # ---------------------------------------------------------------------------
 
 
+def count_tool_calls(messages: list[dict[str, Any]]) -> int:
+    return sum(
+        len(message.get("tool_calls") or [])
+        for message in messages
+        if isinstance(message, dict) and message.get("role") == "assistant"
+    )
+
+
 def _run_worker(spec_path: str) -> None:
     """Executed in a child process. Reads a spec JSON, sets the frozen env vars
     BEFORE importing hermes, runs one conversation, writes the trajectory out."""
@@ -296,13 +304,67 @@ def _run_worker(spec_path: str) -> None:
                 "procedure when relevant:\n\n" + spec["skill_content"]
             )
         agent = AIAgent(**kwargs)
-        result = agent.run_conversation(spec["instruction"], task_id=f"replay_{spec['branch']}")
+        original_instruction = str(spec["instruction"])
+        current_prompt = original_instruction
+        interactions: list[dict[str, Any]] = []
+        result: dict[str, Any] = {}
+        previous_total_tokens = 0
+        previous_tool_calls = 0
+        progress: dict[str, Any] = {}
+        max_interactions = max(1, int(spec.get("max_interactions", 4) or 4))
+        for interaction_num in range(1, max_interactions + 1):
+            result = agent.run_conversation(
+                current_prompt,
+                task_id=f"replay_{spec['branch']}",
+            )
+            messages = result.get("messages") or []
+            total_tokens = int(result.get("total_tokens") or 0)
+            tool_call_count = count_tool_calls(messages)
+            branch_snapshot = {
+                "ok": True,
+                "messages": messages,
+                "final_response": result.get("final_response", ""),
+            }
+            progress = judge_branch(
+                spec["harness"],
+                original_instruction,
+                branch_snapshot,
+            )
+            interactions.append(
+                {
+                    "interaction_num": interaction_num,
+                    "prompt": current_prompt,
+                    "response": str(result.get("final_response") or "")[:4000],
+                    "tool_call_count": max(0, tool_call_count - previous_tool_calls),
+                    "total_tokens": max(0, total_tokens - previous_total_tokens),
+                    "completed": bool(progress.get("success")),
+                    "judge": progress,
+                }
+            )
+            previous_total_tokens = total_tokens
+            previous_tool_calls = tool_call_count
+            if progress.get("success"):
+                break
+            feedback = str(progress.get("feedback") or progress.get("rationale") or "").strip()
+            current_prompt = feedback or (
+                "上一轮尚未完整达成任务目标，请检查现有结果并继续完成，不要重复已经成功的步骤。"
+            )
         out.update(
             ok=True,
             final_response=result.get("final_response", ""),
             messages=result.get("messages", []),
             api_calls=result.get("api_calls"),
             completed=result.get("completed"),
+            interaction_turns=len(interactions),
+            tool_call_count=count_tool_calls(result.get("messages") or []),
+            input_tokens=int(result.get("input_tokens") or result.get("prompt_tokens") or 0),
+            output_tokens=int(result.get("output_tokens") or result.get("completion_tokens") or 0),
+            cache_read_tokens=int(result.get("cache_read_tokens") or 0),
+            cache_write_tokens=int(result.get("cache_write_tokens") or 0),
+            reasoning_tokens=int(result.get("reasoning_tokens") or 0),
+            total_tokens=int(result.get("total_tokens") or 0),
+            interactions=interactions,
+            progress_judge=progress,
         )
     except Exception as e:  # noqa: BLE001 — surface any failure to the parent
         import traceback
@@ -316,7 +378,7 @@ def _run_worker(spec_path: str) -> None:
 
 def spawn_branch(branch: str, sandbox: dict[str, str], instruction: str,
                  harness: dict[str, str], skill: Optional[dict[str, Any]],
-                 tmp: Path, timeout: int) -> dict[str, Any]:
+                 tmp: Path, timeout: int, max_interactions: int = 4) -> dict[str, Any]:
     """Spawn a worker subprocess for one branch and collect its trajectory."""
     spec = {
         "branch": branch,
@@ -330,6 +392,7 @@ def spawn_branch(branch: str, sandbox: dict[str, str], instruction: str,
         "harness": harness,
         "skill_content": (skill or {}).get("content") if branch == "candidate" else None,
         "max_iterations": 25,
+        "max_interactions": max(1, int(max_interactions or 4)),
         "out_path": str(tmp / f"{branch}_out.json"),
     }
     spec_path = tmp / f"{branch}_spec.json"
@@ -386,8 +449,14 @@ def judge_branch(harness: dict[str, str], instruction: str, branch: dict[str, An
     the tools used correctly? Returns {overall, task_completion, tool_correctness,
     rationale}. Scores in [0,1]."""
     if not branch.get("ok"):
-        return {"overall": 0.0, "task_completion": 0.0, "tool_correctness": 0.0,
-                "rationale": f"branch failed: {branch.get('error')}"}
+        return {
+            "success": False,
+            "overall": 0.0,
+            "task_completion": 0.0,
+            "tool_correctness": 0.0,
+            "feedback": "",
+            "rationale": f"branch failed: {branch.get('error')}",
+        }
 
     trace = render_trajectory(branch.get("messages") or [])
     final = str(branch.get("final_response") or "")[:1500]
@@ -401,8 +470,12 @@ def judge_branch(harness: dict[str, str], instruction: str, branch: dict[str, An
         "- tool_correctness: were the right tools called with correct arguments, "
         "and did they succeed (vs error/no-op)?\n"
         "- overall: holistic quality.\n"
-        'Reply ONLY as JSON: {"task_completion":..,"tool_correctness":..,'
-        '"overall":..,"rationale":".."}'
+        "- success: true only when the concrete task is complete enough that no "
+        "further user interaction is needed.\n"
+        "- feedback: if incomplete, give a concise next-turn instruction that "
+        "helps the same agent finish without revealing hidden grading rubrics.\n"
+        'Reply ONLY as JSON: {"success":true|false,"task_completion":..,'
+        '"tool_correctness":..,"overall":..,"feedback":"..","rationale":".."}'
     )
     user_prompt = (
         f"[Instruction]\n{instruction}\n\n[Tool-call trace]\n{trace}\n\n"
@@ -422,8 +495,14 @@ def judge_branch(harness: dict[str, str], instruction: str, branch: dict[str, An
         start, end = raw.find("{"), raw.rfind("}")
         data = json.loads(raw[start:end + 1]) if start >= 0 else {}
     except Exception as e:  # noqa: BLE001
-        return {"overall": 0.0, "task_completion": 0.0, "tool_correctness": 0.0,
-                "rationale": f"judge error: {type(e).__name__}: {e}"}
+        return {
+            "success": False,
+            "overall": 0.0,
+            "task_completion": 0.0,
+            "tool_correctness": 0.0,
+            "feedback": "",
+            "rationale": f"judge error: {type(e).__name__}: {e}",
+        }
 
     def _num(x: Any) -> float:
         try:
@@ -432,10 +511,64 @@ def judge_branch(harness: dict[str, str], instruction: str, branch: dict[str, An
             return 0.0
 
     return {
+        "success": bool(data.get("success")) and _num(data.get("task_completion")) >= 0.75,
         "overall": _num(data.get("overall")),
         "task_completion": _num(data.get("task_completion")),
         "tool_correctness": _num(data.get("tool_correctness")),
+        "feedback": str(data.get("feedback") or "")[:800],
         "rationale": str(data.get("rationale") or "")[:800],
+    }
+
+
+def branch_efficiency(branch: dict[str, Any]) -> dict[str, int]:
+    return {
+        "interaction_turns": int(branch.get("interaction_turns") or 0),
+        "tool_call_count": int(
+            branch.get("tool_call_count")
+            or count_tool_calls(branch.get("messages") or [])
+        ),
+        "total_tokens": int(branch.get("total_tokens") or 0),
+        "input_tokens": int(branch.get("input_tokens") or 0),
+        "output_tokens": int(branch.get("output_tokens") or 0),
+        "cache_read_tokens": int(branch.get("cache_read_tokens") or 0),
+        "cache_write_tokens": int(branch.get("cache_write_tokens") or 0),
+        "reasoning_tokens": int(branch.get("reasoning_tokens") or 0),
+    }
+
+
+def compare_efficiency(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    base = branch_efficiency(baseline)
+    cand = branch_efficiency(candidate)
+    dimensions: dict[str, dict[str, Any]] = {}
+    normalized_gains: list[float] = []
+    for key in ("interaction_turns", "tool_call_count", "total_tokens"):
+        baseline_value = int(base[key])
+        candidate_value = int(cand[key])
+        delta = baseline_value - candidate_value
+        gain = delta / max(1, baseline_value)
+        normalized_gains.append(gain)
+        dimensions[key] = {
+            "baseline": baseline_value,
+            "candidate": candidate_value,
+            "delta": delta,
+            "reduction_ratio": round(gain, 4),
+            "winner": "candidate" if delta > 0 else ("baseline" if delta < 0 else "tie"),
+        }
+    score = sum(normalized_gains) / len(normalized_gains)
+    return {
+        "baseline": base,
+        "candidate": cand,
+        "dimensions": dimensions,
+        "score": round(score, 4),
+        "improved_dimensions": [
+            key for key, value in dimensions.items() if value["winner"] == "candidate"
+        ],
+        "regressed_dimensions": [
+            key for key, value in dimensions.items() if value["winner"] == "baseline"
+        ],
     }
 
 
@@ -464,6 +597,7 @@ def evaluate_job(
     min_score: float = 0.75,
     tolerance: float = 0.15,
     keep_sandbox: bool = False,
+    max_interactions: int = 4,
 ) -> dict[str, Any]:
     """Run a true replay for one candidate and return a structured verdict.
 
@@ -510,16 +644,30 @@ def evaluate_job(
         for branch in ("baseline", "candidate"):
             sandbox = build_sandbox(tmp, branch, harness, skill)
             results[branch] = spawn_branch(
-                branch, sandbox, chosen["instruction"], harness, skill, tmp, timeout
+                branch,
+                sandbox,
+                chosen["instruction"],
+                harness,
+                skill,
+                tmp,
+                timeout,
+                max_interactions=max_interactions,
             )
         judged = {b: judge_branch(harness, chosen["instruction"], results[b])
                   for b in ("baseline", "candidate")}
+        efficiency = compare_efficiency(results["baseline"], results["candidate"])
 
         baseline_overall = float(judged["baseline"]["overall"])
         candidate_overall = float(judged["candidate"]["overall"])
         delta = round(candidate_overall - baseline_overall, 3)
         no_regression = candidate_overall >= (baseline_overall - tolerance)
-        accepted = candidate_overall >= min_score and candidate_overall >= baseline_overall
+        quality_ok = candidate_overall >= min_score and no_regression
+        efficiency_score = float(efficiency["score"])
+        accepted = (
+            quality_ok
+            and (candidate_overall >= baseline_overall or efficiency_score > 0)
+            and efficiency_score >= -0.10
+        )
 
         def _branch_case(branch: str) -> dict[str, Any]:
             r = results[branch]
@@ -538,6 +686,15 @@ def evaluate_job(
                 "error": r.get("error"),
                 "elapsed_seconds": r.get("elapsed_seconds"),
                 "api_calls": r.get("api_calls"),
+                "interaction_turns": r.get("interaction_turns"),
+                "tool_call_count": r.get("tool_call_count"),
+                "total_tokens": r.get("total_tokens"),
+                "input_tokens": r.get("input_tokens"),
+                "output_tokens": r.get("output_tokens"),
+                "cache_read_tokens": r.get("cache_read_tokens"),
+                "cache_write_tokens": r.get("cache_write_tokens"),
+                "reasoning_tokens": r.get("reasoning_tokens"),
+                "interactions": r.get("interactions") or [],
             }
 
         return {
@@ -549,8 +706,11 @@ def evaluate_job(
             "score": round(candidate_overall, 3),
             "baseline_mean": round(baseline_overall, 3),
             "delta": delta,
+            "quality_ok": quality_ok,
+            "efficiency": efficiency,
             "threshold": round(float(min_score), 3),
             "tolerance": round(float(tolerance), 3),
+            "max_interactions": max(1, int(max_interactions or 4)),
             "case_count": 1,
             "case": {
                 "index": chosen["index"],
@@ -573,6 +733,7 @@ def run(
     case_index: Optional[int],
     dry_run: bool,
     timeout: int,
+    max_interactions: int,
     *,
     job: Optional[dict[str, Any]] = None,
 ) -> None:
@@ -617,7 +778,14 @@ def run(
         for branch in ("baseline", "candidate"):
             sandbox = build_sandbox(tmp, branch, harness, skill)
             results[branch] = spawn_branch(
-                branch, sandbox, chosen["instruction"], harness, skill, tmp, timeout
+                branch,
+                sandbox,
+                chosen["instruction"],
+                harness,
+                skill,
+                tmp,
+                timeout,
+                max_interactions=max_interactions,
             )
 
         print("\n===== 双分支执行结果 =====")
@@ -626,7 +794,9 @@ def run(
             r = results[branch]
             label = "🅰 基线(无技能)" if branch == "baseline" else "🅱 候选(注入技能)"
             print(f"\n{label}: ok={r.get('ok')} elapsed={r.get('elapsed_seconds')}s "
-                  f"api_calls={r.get('api_calls')} completed={r.get('completed')}")
+                  f"interactions={r.get('interaction_turns')} "
+                  f"tools={r.get('tool_call_count')} tokens={r.get('total_tokens')} "
+                  f"completed={r.get('completed')}")
             if not r.get("ok"):
                 print(f"   error: {r.get('error')}")
             else:
@@ -645,13 +815,20 @@ def run(
 
         b, c = judged["baseline"]["overall"], judged["candidate"]["overall"]
         delta = c - b
+        efficiency = compare_efficiency(results["baseline"], results["candidate"])
         print(f"\n===== 分差 =====\n  候选 - 基线 = {c:.3f} - {b:.3f} = {delta:+.3f}  "
               f"→ {'候选更优' if delta > 0.001 else ('基线更优' if delta < -0.001 else '持平')}")
+        print("\n===== 效率对比（正数表示候选减少） =====")
+        for key, metric in efficiency["dimensions"].items():
+            print(
+                f"  {key}: baseline={metric['baseline']} candidate={metric['candidate']} "
+                f"delta={metric['delta']:+d} reduction={metric['reduction_ratio']:+.1%}"
+            )
 
         artifact = tmp / "true_replay_result.json"
         artifact.write_text(json.dumps(
             {"job_id": job_id, "case": chosen, "harness": harness,
-             "results": results, "judged": judged, "delta": delta},
+             "results": results, "judged": judged, "delta": delta, "efficiency": efficiency},
             ensure_ascii=False, indent=2), "utf-8")
         print(f"\n完整结果已存档: {artifact}")
     finally:
@@ -667,6 +844,12 @@ def main() -> None:
     ap.add_argument("--case", type=int, default=None, help="replay case index (default: auto)")
     ap.add_argument("--dry-run", action="store_true", help="only resolve cases + check paths")
     ap.add_argument("--timeout", type=int, default=600, help="per-branch timeout seconds")
+    ap.add_argument(
+        "--max-interactions",
+        type=int,
+        default=4,
+        help="maximum user/agent interactions per branch (default: 4)",
+    )
     ap.add_argument("--json", action="store_true",
                     help="emit a single structured JSON verdict on stdout (for programmatic callers)")
     ap.add_argument("--min-score", type=float, default=0.75, help="acceptance threshold (--json)")
@@ -690,6 +873,7 @@ def main() -> None:
             timeout=args.timeout,
             min_score=args.min_score,
             tolerance=args.tolerance,
+            max_interactions=args.max_interactions,
         )
         # Frame the payload so a caller can extract it even if worker subprocesses
         # print incidental lines to stdout.
@@ -697,7 +881,14 @@ def main() -> None:
         print(json.dumps(verdict, ensure_ascii=False))
         print("TRUE_REPLAY_JSON_END")
         return
-    run(job_id, args.case, args.dry_run, args.timeout, job=loaded_job)
+    run(
+        job_id,
+        args.case,
+        args.dry_run,
+        args.timeout,
+        args.max_interactions,
+        job=loaded_job,
+    )
 
 
 if __name__ == "__main__":

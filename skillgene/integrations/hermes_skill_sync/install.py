@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,14 +66,40 @@ def _wire_hook(config_path: Path, command: str, timeout: int) -> str:
     entries = hooks.get(HOOK_EVENT)
     if not isinstance(entries, list):
         entries = []
-    for entry in entries:
-        if isinstance(entry, dict) and str(entry.get("command", "")).strip() == command:
-            return "already-present"
+    target_script = _command_script(command)
+    matching = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and _command_script(str(entry.get("command", ""))) == target_script
+    ]
+    if (
+        len(matching) == 1
+        and str(matching[0].get("command", "")).strip() == command
+        and int(matching[0].get("timeout") or timeout) == timeout
+    ):
+        return "already-present"
+    entries = [
+        entry
+        for entry in entries
+        if not (
+            isinstance(entry, dict)
+            and _command_script(str(entry.get("command", ""))) == target_script
+        )
+    ]
     entries.append({"command": command, "timeout": timeout})
     hooks[HOOK_EVENT] = entries
     data["hooks"] = hooks
     _dump_yaml(config_path, data)
-    return "added"
+    return "updated" if matching else "added"
+
+
+def _command_script(command: str) -> str:
+    try:
+        parts = shlex.split(str(command or ""))
+    except ValueError:
+        parts = str(command or "").split()
+    return os.path.realpath(os.path.expanduser(parts[-1])) if parts else ""
 
 
 def _wire_external_dir(config_path: Path, target_dir: Path) -> str:
@@ -115,11 +142,13 @@ def _approve_hook(home: Path, command: str) -> str:
     except (OSError, ValueError):
         raw, approvals = {}, []
 
+    target_script = _command_script(command)
+
     def _matches(entry: object) -> bool:
         return (
             isinstance(entry, dict)
             and entry.get("event") == HOOK_EVENT
-            and entry.get("command") == command
+            and _command_script(str(entry.get("command") or "")) == target_script
         )
 
     already = any(_matches(entry) for entry in approvals)

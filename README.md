@@ -249,6 +249,17 @@ hooks:
 
 如果 Agent 已经在运行，执行 `/reload-skills` 刷新当前会话缓存；新会话会自动读取同步后的技能。
 
+### 会话技能归因与效率指标
+
+`skillgene-feed` 的 `on_session_end` hook 会从 Hermes `state.db` 上传完整轨迹，
+保留 system、user、assistant、tool 消息，不再丢弃工具调用和工具结果：
+
+- `injected_skills`：system prompt 的 `<available_skills>` 中实际暴露的技能。
+- `used_skills`：本次对话实际通过 `skill_view` 加载的技能。
+- `metrics`：交互轮次、工具调用次数，以及 input/output/cache/reasoning tokens。
+
+安装 `skillgene-feed` 后，这些字段会随 `/ingest_session` 一起进入会话归档和控制台详情。
+
 ---
 
 ## OpenViking / 对象存储
@@ -270,7 +281,11 @@ skillgene config sharing.viking_root_prefix "skillgene"
 
 ## True Replay：用真实轨迹验证技能
 
-普通文本 A/B 只能判断回答像不像；True Replay 会在隔离环境中启动真实 Agent，对 baseline 和 candidate 两个分支分别执行任务，再比较工具调用、完成度和风险信号。
+普通文本 A/B 只能判断回答像不像；True Replay 会在隔离环境中启动真实 Agent，对 baseline 和 candidate 两个分支分别执行任务。任务未完成时，裁判反馈会作为下一轮用户消息在同一 session 中继续交互。最终优先比较：
+
+1. 达成任务所需的交互轮次，越少越好。
+2. 工具调用次数，越少通常说明执行路径越直接。
+3. Total tokens，并同时保留 input/output/cache/reasoning token 明细。
 
 ```mermaid
 flowchart LR

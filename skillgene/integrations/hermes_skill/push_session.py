@@ -30,6 +30,7 @@ import json
 import os
 import sqlite3
 import sys
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -39,6 +40,12 @@ from pathlib import Path
 # supplied explicitly (env / feed.json). If it is missing we skip silently
 # rather than guess a host.
 MAX_CHARS = 8000  # cap any single message body so payloads stay reasonable
+MAX_SYSTEM_CHARS = 200_000
+_AVAILABLE_SKILLS_RE = re.compile(
+    r"<available_skills>\s*(.*?)\s*</available_skills>",
+    re.IGNORECASE | re.DOTALL,
+)
+_SKILL_LIST_ITEM_RE = re.compile(r"^\s*-\s+([^:\n]+?)(?:\s*:|$)")
 
 
 def _log(msg: str) -> None:
@@ -78,38 +85,160 @@ def _state_db_path(cfg: dict) -> Path:
     return _hermes_home() / "state.db"
 
 
-def _fold_turns(rows: list[sqlite3.Row]) -> list[dict]:
-    """Fold role/content messages into [{prompt_text, response_text}] turns.
+def _json_value(value, default):
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        parsed = json.loads(str(value))
+        return parsed
+    except (TypeError, ValueError):
+        return default
 
-    A turn opens on a user message and closes on the next assistant message.
-    Tool/system messages are ignored for the prompt/response text (they add
-    noise the summarizer does not need). Consecutive users or assistants are
-    coalesced so nothing is dropped.
+
+def _normalize_tool_call(raw: dict) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    function = raw.get("function") if isinstance(raw.get("function"), dict) else {}
+    if not function and raw.get("name"):
+        function = {
+            "name": str(raw.get("name") or ""),
+            "arguments": raw.get("arguments") or "{}",
+        }
+    call_id = str(raw.get("id") or raw.get("call_id") or "")
+    return {
+        "id": call_id,
+        "type": str(raw.get("type") or "function"),
+        "function": {
+            "name": str(function.get("name") or ""),
+            "arguments": function.get("arguments") or "{}",
+        },
+    }
+
+
+def _tool_call_skill_name(tool_call: dict) -> tuple[str, str]:
+    function = tool_call.get("function") if isinstance(tool_call, dict) else {}
+    tool_name = str((function or {}).get("name") or "").strip().lower()
+    arguments = _json_value((function or {}).get("arguments"), {})
+    if not isinstance(arguments, dict):
+        return tool_name, ""
+    for key in ("name", "skill_name", "skill"):
+        value = str(arguments.get(key) or "").strip()
+        if value:
+            return tool_name, value
+    return tool_name, ""
+
+
+def _extract_injected_skills(system_prompt: str) -> list[str]:
+    """Return the exact skill names present in Hermes' injected catalog."""
+    match = _AVAILABLE_SKILLS_RE.search(str(system_prompt or ""))
+    if not match:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for line in match.group(1).splitlines():
+        item = _SKILL_LIST_ITEM_RE.match(line)
+        if not item:
+            continue
+        name = item.group(1).strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def _message_record(row: sqlite3.Row) -> dict:
+    tool_calls = [
+        normalized
+        for raw in (_json_value(row["tool_calls"], []) or [])
+        if (normalized := _normalize_tool_call(raw))
+    ]
+    record = {
+        "id": int(row["id"]),
+        "role": str(row["role"] or ""),
+        "content": str(row["content"] or "")[:MAX_CHARS],
+        "timestamp": row["timestamp"],
+        "tool_call_id": str(row["tool_call_id"] or ""),
+        "tool_name": str(row["tool_name"] or ""),
+        "tool_calls": tool_calls,
+        "token_count": int(row["token_count"] or 0),
+        "finish_reason": str(row["finish_reason"] or ""),
+    }
+    reasoning = str(row["reasoning"] or row["reasoning_content"] or "")
+    if reasoning:
+        record["reasoning"] = reasoning[:MAX_CHARS]
+    return record
+
+
+def _fold_turns(rows: list[sqlite3.Row], injected_skills: list[str]) -> list[dict]:
+    """Fold the complete Hermes trajectory into user interaction turns.
+
+    Unlike the old feed, assistant tool calls, tool results, reasoning and
+    system exposure metadata are retained. A new user message starts a new
+    interaction; every following assistant/tool message belongs to that turn.
     """
     turns: list[dict] = []
-    cur_prompt: list[str] = []
-    cur_response: list[str] = []
+    current: list[dict] = []
 
     def _flush() -> None:
-        prompt = "\n".join(p for p in cur_prompt if p).strip()[:MAX_CHARS]
-        response = "\n".join(r for r in cur_response if r).strip()[:MAX_CHARS]
-        if prompt or response:
-            turns.append({"prompt_text": prompt, "response_text": response})
-        cur_prompt.clear()
-        cur_response.clear()
+        if not current:
+            return
+        prompts = [m["content"] for m in current if m["role"] == "user" and m["content"]]
+        responses = [m["content"] for m in current if m["role"] == "assistant" and m["content"]]
+        tool_calls = [
+            tool_call
+            for message in current
+            for tool_call in (message.get("tool_calls") or [])
+        ]
+        tool_results = [
+            {
+                "tool_call_id": message.get("tool_call_id") or "",
+                "tool_name": message.get("tool_name") or "",
+                "content": message.get("content") or "",
+                "has_error": any(
+                    token in str(message.get("content") or "").lower()
+                    for token in ("error", "exception", "traceback", "failed")
+                ),
+            }
+            for message in current
+            if message.get("role") == "tool"
+        ]
+        used: list[str] = []
+        modified: list[str] = []
+        for tool_call in tool_calls:
+            tool_name, skill_name = _tool_call_skill_name(tool_call)
+            if not skill_name:
+                continue
+            if tool_name == "skill_view" and skill_name not in used:
+                used.append(skill_name)
+            elif tool_name == "skill_manage" and skill_name not in modified:
+                modified.append(skill_name)
+        turns.append(
+            {
+                "turn_num": len(turns) + 1,
+                "prompt_text": "\n".join(prompts).strip()[:MAX_CHARS],
+                "response_text": "\n".join(responses).strip()[:MAX_CHARS],
+                "messages": list(current),
+                "tool_calls": tool_calls,
+                "tool_results": tool_results,
+                "injected_skills": list(injected_skills),
+                "used_skills": used,
+                "read_skills": [{"skill_name": name} for name in used],
+                "modified_skills": [{"skill_name": name} for name in modified],
+                "metrics": {
+                    "tool_call_count": len(tool_calls),
+                    "message_tokens": sum(int(m.get("token_count") or 0) for m in current),
+                },
+            }
+        )
+        current.clear()
 
     for row in rows:
-        role = (row["role"] or "").lower()
-        content = (row["content"] or "").strip()
-        if not content:
-            continue
-        if role == "user":
-            if cur_response:  # a new user turn after we already have a reply
-                _flush()
-            cur_prompt.append(content)
-        elif role == "assistant":
-            cur_response.append(content)
-        # system / tool messages are intentionally skipped for text.
+        message = _message_record(row)
+        if message["role"] == "user" and current:
+            _flush()
+        current.append(message)
     _flush()
     return turns
 
@@ -126,12 +255,18 @@ def _read_session(db_path: Path, session_id: str) -> dict | None:
     try:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT role, content, timestamp FROM messages "
+            "SELECT id, role, content, timestamp, tool_call_id, tool_calls, "
+            "tool_name, token_count, finish_reason, reasoning, reasoning_content "
+            "FROM messages "
             "WHERE session_id = ? AND active = 1 ORDER BY id ASC",
             (session_id,),
         ).fetchall()
         meta = conn.execute(
-            "SELECT started_at FROM sessions WHERE id = ?", (session_id,)
+            "SELECT started_at, source, model, system_prompt, message_count, "
+            "tool_call_count, input_tokens, output_tokens, cache_read_tokens, "
+            "cache_write_tokens, reasoning_tokens, api_call_count "
+            "FROM sessions WHERE id = ?",
+            (session_id,),
         ).fetchone()
     except sqlite3.Error as exc:
         _log(f"query failed: {exc}")
@@ -139,12 +274,43 @@ def _read_session(db_path: Path, session_id: str) -> dict | None:
     finally:
         conn.close()
 
-    turns = _fold_turns(rows)
+    system_prompt = str(meta["system_prompt"] or "") if meta else ""
+    injected_skills = _extract_injected_skills(system_prompt)
+    turns = _fold_turns(rows, injected_skills)
     if not turns:
         return None
 
     title = turns[0]["prompt_text"].splitlines()[0][:120] if turns[0]["prompt_text"] else ""
-    session: dict = {"session_id": session_id, "turns": turns}
+    messages = [{"role": "system", "content": system_prompt[:MAX_SYSTEM_CHARS]}] if system_prompt else []
+    messages.extend(_message_record(row) for row in rows)
+    used_skills: list[str] = []
+    for turn in turns:
+        for name in turn.get("used_skills") or []:
+            if name not in used_skills:
+                used_skills.append(name)
+    metrics = {
+        "interaction_turns": len(turns),
+        "message_count": int(meta["message_count"] or len(rows)) if meta else len(rows),
+        "tool_call_count": int(meta["tool_call_count"] or 0) if meta else 0,
+        "api_call_count": int(meta["api_call_count"] or 0) if meta else 0,
+        "input_tokens": int(meta["input_tokens"] or 0) if meta else 0,
+        "output_tokens": int(meta["output_tokens"] or 0) if meta else 0,
+        "cache_read_tokens": int(meta["cache_read_tokens"] or 0) if meta else 0,
+        "cache_write_tokens": int(meta["cache_write_tokens"] or 0) if meta else 0,
+        "reasoning_tokens": int(meta["reasoning_tokens"] or 0) if meta else 0,
+    }
+    metrics["total_tokens"] = metrics["input_tokens"] + metrics["output_tokens"]
+    session: dict = {
+        "session_id": session_id,
+        "turns": turns,
+        "messages": messages,
+        "system_prompt": system_prompt[:MAX_SYSTEM_CHARS],
+        "injected_skills": injected_skills,
+        "used_skills": used_skills,
+        "metrics": metrics,
+        "source": str(meta["source"] or "") if meta else "",
+        "model": str(meta["model"] or "") if meta else "",
+    }
     if title:
         session["title"] = title
     if meta and meta["started_at"]:

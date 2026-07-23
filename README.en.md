@@ -249,6 +249,18 @@ hooks:
 
 If the agent is already running, execute `/reload-skills` to refresh the current session cache. New sessions pick up synced skills automatically.
 
+### Session Skill Attribution and Efficiency Metrics
+
+The `skillgene-feed` `on_session_end` hook reads the complete Hermes trajectory
+from `state.db`. System, user, assistant, and tool messages are retained:
+
+- `injected_skills`: skills actually exposed in the system prompt's `<available_skills>` block.
+- `used_skills`: skills actually loaded through `skill_view`.
+- `metrics`: interaction turns, tool-call count, and input/output/cache/reasoning tokens.
+
+After installing `skillgene-feed`, these fields are sent through `/ingest_session`
+and preserved in the session archive and console details.
+
 ---
 
 ## OpenViking / Object Storage
@@ -270,7 +282,11 @@ Do not commit real API keys. Use local configuration, environment variables, or 
 
 ## True Replay: Validate Skills with Real Trajectories
 
-Plain-text A/B checks can only compare answers. True Replay starts real agents in isolated environments, runs baseline and candidate branches, then compares tool calls, task completion, and risk signals.
+Plain-text A/B checks can only compare answers. True Replay starts real agents in isolated environments and runs baseline and candidate branches. If a task is incomplete, judge feedback becomes the next user message in the same session. The primary comparison dimensions are:
+
+1. User/agent interaction turns needed to complete the task; fewer is better.
+2. Tool-call count; fewer calls usually indicate a more direct execution path.
+3. Total tokens, with input/output/cache/reasoning details retained.
 
 ```mermaid
 flowchart LR
