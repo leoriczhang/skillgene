@@ -364,7 +364,7 @@ python -m build
 ## 参考与引用
 
 相关项目与资料：
-
+- [SkillClaw](https://github.com/AMAP-ML/SkillClaw)：多 Angent skills 进化项目。
 - [OpenSpace](https://github.com/HKUDS/OpenSpace)：质量优先的 Agent Skill Hub。
 - [Hermes Agent](https://github.com/nousresearch/hermes-agent)：可选 True Replay 运行时依赖。
 - [FastAPI](https://fastapi.tiangolo.com/)：SkillGene 服务端框架。

@@ -365,7 +365,7 @@ python -m build
 ## References
 
 Related projects and references:
-
+- [SkillClaw](https://github.com/AMAP-ML/SkillClaw): a multi-agent skill evolution project.
 - [OpenSpace](https://github.com/HKUDS/OpenSpace): a quality-first skill hub for AI agents.
 - [Hermes Agent](https://github.com/nousresearch/hermes-agent): optional runtime dependency for True Replay.
 - [FastAPI](https://fastapi.tiangolo.com/): the SkillGene service framework.
