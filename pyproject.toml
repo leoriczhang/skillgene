@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skillgene"
+version = "0.1.0"
+description = "SkillGene: shared SKILL.md library management, sync, proxy recording, and optional validation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "SkillGene Contributors" },
+]
+keywords = ["skills", "agents", "skill-library", "llm", "proxy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "httpx>=0.25.0",
+    "tiktoken>=0.5",
+]
+
+[project.optional-dependencies]
+sharing = [
+    "boto3>=1.28",
+]
+validation = [
+    "openai>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "anyio>=4.0",
+]
+all = [
+    "skillgene[sharing,validation]",
+]
+
+[project.urls]
+Homepage = "https://github.com/leoriczhang/skillgene"
+Repository = "https://github.com/leoriczhang/skillgene"
+Issues = "https://github.com/leoriczhang/skillgene/issues"
+
+[project.scripts]
+skillgene = "skillgene.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["skillgene*"]
+
+[tool.setuptools.package-data]
+skillgene = ["web/*.html", "integrations/hermes_skill/*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E731", "F403", "F405"]

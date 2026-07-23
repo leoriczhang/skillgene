@@ -1,0 +1,193 @@
+"""Defaults and normalization helpers for the SkillGene config store."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+CONFIG_DIR = Path.home() / ".skillgene"
+CONFIG_FILE = CONFIG_DIR / "config.yaml"
+_DEFAULT_SKILLS_DIR = CONFIG_DIR / "skills"
+_DEFAULT_HERMES_SKILLS_DIR = Path.home() / ".hermes" / "skills"
+_FALLBACK_LLM_API_MODE = "chat"
+_SKILL_RELOAD_MODES = {"off", "poll", "callback"}
+_MIN_SKILL_RELOAD_INTERVAL_SECONDS = 5
+
+_DEFAULTS: dict = {
+    "llm": {
+        "provider": "custom",
+        "model_id": "gpt-4o",
+        "api_base": "https://api.openai.com/v1",
+        "api_key": "",
+        "max_tokens": 100000,
+        "temperature": 0.4,
+    },
+    "proxy": {
+        "port": 30000,
+        "host": "0.0.0.0",
+        "api_key": "",
+        "served_model_name": "skillgene-model",
+    },
+    "skills": {
+        "enabled": True,
+        "dir": str(_DEFAULT_SKILLS_DIR),
+    },
+    "openrouter": {
+        "app_name": "SkillGene",
+        "app_url": "",
+        "route": "fallback",
+        "fallback_models": "",
+        "data_policy": "",
+    },
+    "prm": {
+        "enabled": True,
+        "provider": "openai",
+        "url": "https://api.openai.com/v1",
+        "model": "gpt-4o",
+        "api_key": "",
+    },
+    "sharing": {
+        "enabled": False,
+        "backend": "",
+        "endpoint": "",
+        "local_root": "",
+        "skill_backend": "",
+        "session_backend": "",
+        "viking_endpoint": "",
+        # Backward-compatible fallback. Prefer the scoped keys when the caller
+        # has separate personal and team OpenViking credentials.
+        "viking_api_key": "",
+        "viking_personal_api_key": "",
+        "viking_team_api_key": "",
+        "viking_account": "default",
+        "viking_user": "default",
+        # wire constant: OpenViking agent namespace, do not rename
+        "viking_agent": "skillgene",
+        "viking_agent_id": "",
+        "viking_customer_id": "",
+        "viking_root_prefix": "",
+        "viking_group_id": "",
+        "user_alias": "",
+        "auto_pull_on_start": False,
+        "push_min_injections": 5,
+        "push_min_effectiveness": 0.3,
+        "session_upload_interval": 0,
+        "skill_reload_mode": "poll",
+        "skill_reload_interval_seconds": 30,
+    },
+    "evolve": {
+        "server_url": "",
+    },
+    "validation": {
+        "enabled": False,
+        "mode": "replay",
+        "idle_after_seconds": 300,
+        "poll_interval_seconds": 60,
+        "max_jobs_per_day": 5,
+        "max_concurrency": 1,
+    },
+}
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _coerce(value: Any) -> Any:
+    """Auto-coerce string values to bool/int/float where obvious."""
+    if not isinstance(value, str):
+        return value
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _first_non_empty(mapping: dict[str, Any], *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return default
+
+
+def _infer_sharing_backend(sharing: dict[str, Any]) -> str:
+    backend = str(sharing.get("backend", "") or "").strip().lower()
+    if backend:
+        return backend
+    if sharing.get("local_root"):
+        return "local"
+    if sharing.get("viking_endpoint"):
+        return "viking"
+    return ""
+
+
+def _normalize_validation_mode(value: Any) -> str:
+    del value
+    return "replay"
+
+
+def _normalize_choice(value: Any, allowed: set[str], default: str) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in allowed else default
+
+
+def _normalize_non_negative_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_reload_interval(value: Any) -> int:
+    try:
+        interval = int(value or 30)
+    except (TypeError, ValueError):
+        interval = 30
+    return max(_MIN_SKILL_RELOAD_INTERVAL_SECONDS, interval)
+
+
+def resolve_skills_dir(skills_dir: Any) -> str:
+    """Normalize a configured skills dir, applying Hermes-native defaults."""
+    raw = str(skills_dir or "").strip()
+    generic_default = _DEFAULT_SKILLS_DIR.expanduser()
+
+    if raw:
+        expanded = Path(raw).expanduser()
+        if expanded == generic_default:
+            return str(_DEFAULT_HERMES_SKILLS_DIR)
+        return str(expanded)
+
+    return str(_DEFAULT_HERMES_SKILLS_DIR)
+
+
+def _default_served_model_name(llm_model_id: str) -> str:
+    """Return a safe proxy-facing model name for agent integrations.
+
+    GPT-5-style names trigger Hermes' Responses API mode. The proxy does not
+    want to expose the upstream model name directly because the proxy surface
+    may not match the upstream protocol. Use a stable proxy model name instead.
+    """
+    raw = str(llm_model_id or "").strip()
+    if not raw:
+        return "skillgene-model"
+
+    normalized = raw.rsplit("/", 1)[-1].lower()
+    if normalized.startswith("gpt-5"):
+        return "skillgene-model"
+    return raw

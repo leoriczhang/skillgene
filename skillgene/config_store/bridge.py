@@ -1,0 +1,286 @@
+"""User-facing configuration store for SkillGene.
+
+Reads/writes ~/.skillgene/config.yaml and bridges to SkillGeneConfig.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from ..config import SkillGeneConfig
+from .defaults import (
+    _DEFAULT_SKILLS_DIR,
+    _DEFAULTS,
+    _FALLBACK_LLM_API_MODE,
+    _SKILL_RELOAD_MODES,
+    CONFIG_FILE,
+    _coerce,
+    _deep_merge,
+    _default_served_model_name,
+    _first_non_empty,
+    _infer_sharing_backend,
+    _normalize_choice,
+    _normalize_non_negative_int,
+    _normalize_reload_interval,
+    _normalize_validation_mode,
+    resolve_skills_dir,
+)
+
+
+class ConfigStore:
+    """Read/write ~/.skillgene/config.yaml."""
+
+    def __init__(self, config_file: Path = CONFIG_FILE):
+        self.config_file = config_file
+
+    def exists(self) -> bool:
+        return self.config_file.exists()
+
+    def load(self) -> dict:
+        if not self.config_file.exists():
+            return _deep_merge({}, _DEFAULTS)
+        try:
+            import yaml
+
+            with open(self.config_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return _deep_merge(_DEFAULTS, data)
+        except Exception:
+            return _deep_merge({}, _DEFAULTS)
+
+    def save(self, data: dict):
+        import yaml
+
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.config_file, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+    def get(self, dotpath: str) -> Any:
+        data = self.load()
+        for k in dotpath.split("."):
+            if not isinstance(data, dict):
+                return None
+            data = data.get(k)
+        return data
+
+    def set(self, dotpath: str, value: Any):
+        data = self.load()
+        keys = dotpath.split(".")
+        d = data
+        for k in keys[:-1]:
+            d = d.setdefault(k, {})
+        d[keys[-1]] = _coerce(value)
+        self.save(data)
+
+    # ------------------------------------------------------------------ #
+    # Bridge to SkillGeneConfig                                            #
+    # ------------------------------------------------------------------ #
+
+    def to_config(self) -> SkillGeneConfig:
+        data = self.load()
+        llm = data.get("llm", {})
+        llm_provider = llm.get("provider", "openai")
+        llm_api_base = llm.get("api_base", "")
+        llm_api_key = llm.get("api_key", "")
+        llm_model_id = llm.get("model_id", "")
+        llm_api_mode = str(llm.get("api_mode", _FALLBACK_LLM_API_MODE) or _FALLBACK_LLM_API_MODE)
+        llm_max_tokens = int(llm.get("max_tokens", 100000) or 100000)
+        llm_temperature = float(llm.get("temperature", 0.4) if llm.get("temperature") is not None else 0.4)
+        proxy = data.get("proxy", {})
+        skills = data.get("skills", {})
+        orouter = data.get("openrouter", {})
+        prm = data.get("prm", {})
+
+        sharing = data.get("sharing", {})
+        evolve = data.get("evolve", {})
+        validation = data.get("validation", {})
+        sharing_backend = _infer_sharing_backend(sharing)
+        sharing_endpoint = _first_non_empty(sharing, "endpoint")
+        sharing_local_root = _first_non_empty(sharing, "local_root")
+        sharing_skill_backend = _first_non_empty(sharing, "skill_backend")
+        sharing_session_backend = _first_non_empty(sharing, "session_backend")
+
+        prm_provider = prm.get("provider", "openai")
+        prm_url = str(prm.get("url", "") or llm_api_base)
+        prm_model = str(prm.get("model", "") or llm_model_id or "gpt-4o")
+        prm_api_key = str(prm.get("api_key", "") or llm_api_key)
+
+        skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
+
+        return SkillGeneConfig(
+            # LLM forwarding
+            llm_provider=llm_provider,
+            llm_api_base=llm_api_base,
+            llm_api_key=llm_api_key,
+            llm_model_id=llm_model_id,
+            llm_api_mode=llm_api_mode,
+            llm_max_tokens=llm_max_tokens,
+            llm_temperature=llm_temperature,
+            # OpenRouter
+            openrouter_app_name=orouter.get("app_name", "SkillGene"),
+            openrouter_app_url=orouter.get("app_url", ""),
+            openrouter_route=orouter.get("route", "fallback"),
+            openrouter_fallback_models=orouter.get("fallback_models", ""),
+            openrouter_data_policy=orouter.get("data_policy", ""),
+            # Proxy
+            proxy_port=proxy.get("port", 30000),
+            proxy_host=proxy.get("host", "0.0.0.0"),
+            proxy_api_key=str(proxy.get("api_key", "") or ""),
+            served_model_name=(
+                _first_non_empty(proxy, "served_model_name") or _default_served_model_name(llm_model_id)
+            ),
+            # Skills
+            use_skills=bool(skills.get("enabled", True)),
+            skills_dir=skills_dir,
+            skills_public_root=str(skills.get("public_root", "") or ""),
+            max_context_tokens=int(data.get("max_context_tokens", 240000) or 240000),
+            # PRM
+            use_prm=bool(prm.get("enabled", True)),
+            prm_provider=prm_provider,
+            prm_url=prm_url,
+            prm_model=prm_model,
+            prm_api_key=prm_api_key,
+            # Model
+            model_name=llm.get("model_id") or "gpt-4o",
+            # Sharing
+            sharing_enabled=bool(sharing.get("enabled", False)),
+            sharing_backend=sharing_backend,
+            sharing_endpoint=sharing_endpoint,
+            sharing_local_root=sharing_local_root,
+            sharing_skill_backend=sharing_skill_backend,
+            sharing_session_backend=sharing_session_backend,
+            sharing_viking_endpoint=str(sharing.get("viking_endpoint", "") or ""),
+            sharing_viking_api_key=str(sharing.get("viking_api_key", "") or ""),
+            sharing_viking_personal_api_key=str(
+                sharing.get("viking_personal_api_key", "")
+                or sharing.get("viking_user_api_key", "")
+                or ""
+            ),
+            sharing_viking_team_api_key=str(
+                sharing.get("viking_team_api_key", "")
+                or sharing.get("viking_resources_api_key", "")
+                or ""
+            ),
+            sharing_viking_account=str(sharing.get("viking_account", "") or "default"),
+            sharing_viking_user=str(sharing.get("viking_user", "") or "default"),
+            sharing_viking_agent=str(sharing.get("viking_agent", "") or "skillgene"),
+            sharing_viking_agent_id=str(
+                sharing.get("viking_agent_id", "") or sharing.get("viking_user_id", "") or ""
+            ),
+            sharing_viking_customer_id=str(
+                sharing.get("viking_customer_id", "") or sharing.get("viking_peer_id", "") or ""
+            ),
+            sharing_viking_root_prefix=str(
+                sharing.get("viking_root_prefix", "") or sharing.get("root_prefix", "") or "skillgene"
+            ),
+            sharing_viking_group_id=str(
+                sharing.get("viking_group_id", "") or sharing.get("group_id", "") or ""
+            ),
+            sharing_user_alias=str(sharing.get("user_alias", "") or ""),
+            sharing_auto_pull_on_start=bool(sharing.get("auto_pull_on_start", False)),
+            sharing_push_min_injections=int(sharing.get("push_min_injections", 5)),
+            sharing_push_min_effectiveness=float(sharing.get("push_min_effectiveness", 0.3)),
+            sharing_session_upload_interval=_normalize_non_negative_int(
+                sharing.get("session_upload_interval", 0),
+                default=0,
+            ),
+            sharing_skill_reload_mode=_normalize_choice(
+                sharing.get("skill_reload_mode", "poll"),
+                _SKILL_RELOAD_MODES,
+                "poll",
+            ),
+            sharing_skill_reload_interval_seconds=_normalize_reload_interval(
+                sharing.get("skill_reload_interval_seconds", 30),
+            ),
+            evolve_server_url=str(evolve.get("server_url", "") or ""),
+            validation_enabled=bool(validation.get("enabled", False)),
+            validation_mode=_normalize_validation_mode(validation.get("mode", "replay")),
+            validation_idle_after_seconds=int(validation.get("idle_after_seconds", 300)),
+            validation_poll_interval_seconds=int(validation.get("poll_interval_seconds", 60)),
+            validation_max_jobs_per_day=int(validation.get("max_jobs_per_day", 5)),
+            validation_max_concurrency=max(1, int(validation.get("max_concurrency", 1))),
+        )
+
+    def describe(self) -> str:
+        """Return a human-readable summary of the current config."""
+        data = self.load()
+        llm = data.get("llm", {})
+        skills = data.get("skills", {})
+        prm = data.get("prm", {})
+        evolve = data.get("evolve", {})
+        effective_skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
+        lines = [
+            f"llm.provider:    {llm.get('provider', '?')}",
+            f"llm.model_id:    {llm.get('model_id', '?')}",
+            f"llm.api_base:    {llm.get('api_base', '—')}",
+            *(
+                [
+                    f"openrouter.route:    {data.get('openrouter', {}).get('route', 'fallback')}",
+                    f"openrouter.fallback: {data.get('openrouter', {}).get('fallback_models', '') or '(none)'}",
+                    f"openrouter.data:     {data.get('openrouter', {}).get('data_policy', '') or 'allow'}",
+                ]
+                if llm.get("provider") == "openrouter"
+                else []
+            ),
+            f"proxy.port:      {data.get('proxy', {}).get('port', 30000)}",
+            f"skills.enabled:  {skills.get('enabled', True)}",
+            f"skills.dir:      {effective_skills_dir}",
+            f"prm.enabled:     {prm.get('enabled', False)}",
+        ]
+        sharing = data.get("sharing", {})
+        validation = data.get("validation", {})
+        if sharing.get("enabled"):
+            backend = _infer_sharing_backend(sharing) or "unknown"
+            skill_backend = str(sharing.get("skill_backend", "") or "").strip().lower()
+            lines += [
+                "sharing.enabled: True",
+                f"sharing.backend: {backend}",
+            ]
+            if skill_backend:
+                lines.append(f"sharing.skill_backend: {skill_backend}")
+            if backend == "local":
+                lines += [
+                    f"sharing.local_root: {sharing.get('local_root', '?')}",
+                ]
+            elif backend == "viking":
+                personal_key = (
+                    sharing.get("viking_personal_api_key")
+                    or sharing.get("viking_user_api_key")
+                    or sharing.get("viking_api_key")
+                    or ""
+                )
+                team_key = (
+                    sharing.get("viking_team_api_key")
+                    or sharing.get("viking_resources_api_key")
+                    or sharing.get("viking_api_key")
+                    or ""
+                )
+                lines += [
+                    f"sharing.viking_endpoint: {sharing.get('viking_endpoint', '') or '(default)'}",
+                    f"sharing.viking_root_prefix: {sharing.get('viking_root_prefix', '') or 'skillgene'}",
+                    f"sharing.viking_personal_api_key: {'present' if personal_key else 'missing'}",
+                    f"sharing.viking_team_api_key: {'present' if team_key else 'missing'}",
+                ]
+            lines += [
+                f"sharing.agent_id:    {sharing.get('viking_agent_id', '') or '(default)'}",
+                f"sharing.customer_id: {sharing.get('viking_customer_id', '') or '(none)'}",
+                f"sharing.alias:   {sharing.get('user_alias', '?')}",
+                f"sharing.auto_pull: {sharing.get('auto_pull_on_start', False)}",
+                "sharing.session_upload_interval: "
+                f"{_normalize_non_negative_int(sharing.get('session_upload_interval', 0), default=0)}",
+                "sharing.skill_reload_mode: "
+                f"{_normalize_choice(sharing.get('skill_reload_mode', 'poll'), _SKILL_RELOAD_MODES, 'poll')}",
+                "sharing.skill_reload_interval: "
+                f"{_normalize_reload_interval(sharing.get('skill_reload_interval_seconds', 30))}",
+            ]
+        else:
+            lines.append("sharing.enabled: False")
+        lines += [
+            f"evolve.server_url: {evolve.get('server_url', '') or '(not set)'}",
+            f"validation.enabled: {validation.get('enabled', False)}",
+            f"validation.mode: {_normalize_validation_mode(validation.get('mode', 'replay'))}",
+            f"validation.idle_after: {validation.get('idle_after_seconds', 300)}",
+            f"validation.poll_interval: {validation.get('poll_interval_seconds', 60)}",
+        ]
+        return "\n".join(lines)
