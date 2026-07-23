@@ -119,9 +119,9 @@ def read_hermes_harness() -> dict[str, str]:
         except Exception:
             model = {}
     return {
-        "base_url": str(model.get("base_url") or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
+        "base_url": str(model.get("base_url") or os.getenv("OPENAI_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")),
         "api_key": str(model.get("api_key") or os.getenv("OPENAI_API_KEY", "")),
-        "model": str(model.get("default") or os.getenv("SKILLGENE_REPLAY_MODEL", "gpt-4o")),
+        "model": str(model.get("default") or os.getenv("SKILLGENE_REPLAY_MODEL", "doubao-seed-evolving")),
         "api_mode": str(model.get("api_mode") or ""),
         "max_tokens": int(model.get("max_tokens") or 8192),
     }

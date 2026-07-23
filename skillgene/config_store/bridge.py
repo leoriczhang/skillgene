@@ -103,7 +103,7 @@ class ConfigStore:
 
         prm_provider = prm.get("provider", "openai")
         prm_url = str(prm.get("url", "") or llm_api_base)
-        prm_model = str(prm.get("model", "") or llm_model_id or "gpt-4o")
+        prm_model = str(prm.get("model", "") or llm_model_id or "doubao-seed-evolving")
         prm_api_key = str(prm.get("api_key", "") or llm_api_key)
 
         skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
@@ -142,7 +142,7 @@ class ConfigStore:
             prm_model=prm_model,
             prm_api_key=prm_api_key,
             # Model
-            model_name=llm.get("model_id") or "gpt-4o",
+            model_name=llm.get("model_id") or "doubao-seed-evolving",
             # Sharing
             sharing_enabled=bool(sharing.get("enabled", False)),
             sharing_backend=sharing_backend,

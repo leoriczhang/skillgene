@@ -8,15 +8,15 @@ class SkillGeneConfig:
     # ------------------------------------------------------------------ #
     # Model                                                               #
     # ------------------------------------------------------------------ #
-    model_name: str = "gpt-4o"
+    model_name: str = "doubao-seed-evolving"
 
     # ------------------------------------------------------------------ #
     # Reward / PRM                                                        #
     # ------------------------------------------------------------------ #
     use_prm: bool = True
     prm_provider: str = "openai"
-    prm_url: str = "https://api.openai.com/v1"
-    prm_model: str = "gpt-4o"
+    prm_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    prm_model: str = "doubao-seed-evolving"
     prm_api_key: str = ""
     prm_m: int = 3
     prm_temperature: float = 0.6
@@ -53,9 +53,9 @@ class SkillGeneConfig:
     # LLM forwarding                                                      #
     # ------------------------------------------------------------------ #
     llm_provider: str = "openai"
-    llm_api_base: str = "https://api.openai.com/v1"
+    llm_api_base: str = "https://ark.cn-beijing.volces.com/api/v3"
     llm_api_key: str = ""
-    llm_model_id: str = "gpt-4o"
+    llm_model_id: str = "doubao-seed-evolving"
     llm_api_mode: str = "chat"
     llm_max_tokens: int = 100000
     llm_temperature: float = 0.4

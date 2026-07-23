@@ -16,8 +16,8 @@ _MIN_SKILL_RELOAD_INTERVAL_SECONDS = 5
 _DEFAULTS: dict = {
     "llm": {
         "provider": "custom",
-        "model_id": "gpt-4o",
-        "api_base": "https://api.openai.com/v1",
+        "model_id": "doubao-seed-evolving",
+        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
         "api_key": "",
         "max_tokens": 100000,
         "temperature": 0.4,
@@ -42,8 +42,8 @@ _DEFAULTS: dict = {
     "prm": {
         "enabled": True,
         "provider": "openai",
-        "url": "https://api.openai.com/v1",
-        "model": "gpt-4o",
+        "url": "https://ark.cn-beijing.volces.com/api/v3",
+        "model": "doubao-seed-evolving",
         "api_key": "",
     },
     "sharing": {

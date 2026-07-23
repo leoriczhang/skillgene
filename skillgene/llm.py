@@ -20,8 +20,8 @@ class AsyncLLMClient:
     def __init__(
         self,
         api_key: str = "",
-        base_url: str = "https://api.openai.com/v1",
-        model: str = "gpt-4o",
+        base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
+        model: str = "doubao-seed-evolving",
         max_tokens: int = 100000,
         temperature: float = 0.4,
     ) -> None:
@@ -30,10 +30,10 @@ class AsyncLLMClient:
 
         self._client = OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
-            base_url=base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            base_url=base_url or os.environ.get("OPENAI_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
             timeout=httpx.Timeout(600.0, connect=30.0),
         )
-        self.model = model or os.environ.get("SKILLGENE_MODEL", "gpt-4o")
+        self.model = model or os.environ.get("SKILLGENE_MODEL", "doubao-seed-evolving")
         self.max_tokens = max_tokens
         self.temperature = temperature
 

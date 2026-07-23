@@ -180,6 +180,14 @@ export interface EvolveModelSettings {
   api_key_present?: boolean;
 }
 
+export interface EvolveModelTestResp {
+  ok: boolean;
+  model?: string;
+  base_url?: string;
+  latency_ms?: number;
+  response?: string;
+}
+
 // ---- Skills management --------------------------------------------------- //
 
 export interface SkillListItem {

@@ -3,7 +3,7 @@ import { Panel, StatCard, Pill, Dot } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api, type EvolveModelSettings, type UserProfile } from "@/api/client";
+import { api, type EvolveModelSettings, type EvolveModelTestResp, type UserProfile } from "@/api/client";
 import { toastErr, toastOk } from "@/lib/toast";
 
 const emptySettings = (): EvolveModelSettings => ({
@@ -25,6 +25,8 @@ export default function ModelSettingsView({
   const [settings, setSettings] = useState<EvolveModelSettings>(() => emptySettings());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<EvolveModelTestResp | null>(null);
   const [clearKey, setClearKey] = useState(false);
   const loaded = useRef(false);
   const isAdmin = user?.role === "admin";
@@ -35,6 +37,7 @@ export default function ModelSettingsView({
       const data = await api<EvolveModelSettings>("/api/evolve-model");
       setSettings({ ...data, api_key: "" });
       setClearKey(false);
+      setTestResult(null);
     } catch (e: any) {
       toastErr("加载模型配置失败", e.message);
     } finally {
@@ -74,6 +77,31 @@ export default function ModelSettingsView({
     }
   }
 
+  async function testModel() {
+    if (!isAdmin) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const payload: EvolveModelSettings = {
+        ...settings,
+        max_tokens: Number(settings.max_tokens || 100000),
+        temperature: Number(settings.temperature ?? 0.4),
+        clear_api_key: clearKey,
+      };
+      const result = await api<EvolveModelTestResp>("/api/evolve-model/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setTestResult(result);
+      toastOk("模型连通性正常", `${result.latency_ms ?? "-"} ms · ${result.response || ""}`);
+    } catch (e: any) {
+      toastErr("模型测试失败", e.message);
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1080px] px-7 py-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
@@ -85,6 +113,9 @@ export default function ModelSettingsView({
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>刷新</Button>
+          <Button variant="outline" size="sm" onClick={testModel} disabled={!isAdmin || testing}>
+            {testing ? "测试中…" : "测试模型"}
+          </Button>
           <Button size="sm" onClick={save} disabled={!isAdmin || saving}>
             保存配置
           </Button>
@@ -129,7 +160,7 @@ export default function ModelSettingsView({
               <Input
                 disabled={!isAdmin}
                 value={settings.model || ""}
-                placeholder="gpt-4o"
+                placeholder="doubao-seed-evolving"
                 onChange={(e) => setSettings({ ...settings, model: e.target.value })}
               />
             </Field>
@@ -139,7 +170,7 @@ export default function ModelSettingsView({
             <Input
               disabled={!isAdmin}
               value={settings.base_url || ""}
-              placeholder="https://api.openai.com/v1"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
               onChange={(e) => setSettings({ ...settings, base_url: e.target.value })}
             />
           </Field>
@@ -188,6 +219,15 @@ export default function ModelSettingsView({
               />
               清空已保存的 API Key
             </label>
+          )}
+
+          {testResult && (
+            <div className="rounded-lg border border-border bg-background/60 p-3 text-xs leading-relaxed">
+              <div className="mb-1 font-semibold text-success">模型测试通过</div>
+              <div className="text-muted-foreground">
+                {testResult.model} · {testResult.latency_ms ?? "-"} ms · 返回：{testResult.response || "（空）"}
+              </div>
+            </div>
           )}
 
           <div className="rounded-lg border border-border bg-background/60 p-3 text-xs leading-relaxed text-muted-foreground">

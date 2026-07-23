@@ -55,12 +55,12 @@ class ValidationWorker:
         self._client = AsyncLLMClient(
             api_key=config.llm_api_key,
             base_url=config.llm_api_base,
-            model=config.llm_model_id or config.model_name or "gpt-4o",
+            model=config.llm_model_id or config.model_name or "doubao-seed-evolving",
             max_tokens=4096,
             temperature=0.1,
         )
         prm_url = config.prm_url or config.llm_api_base
-        prm_model = config.prm_model or config.llm_model_id or config.model_name or "gpt-4o"
+        prm_model = config.prm_model or config.llm_model_id or config.model_name or "doubao-seed-evolving"
         prm_api_key = config.prm_api_key or config.llm_api_key
         self._prm_scorer = PRMScorer(
             prm_url=prm_url,

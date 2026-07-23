@@ -6,8 +6,8 @@ so any external API (Anthropic, OpenAI, Together, etc.) works out of the box.
 
 Public API:
     scorer = PRMScorer(
-        prm_url="https://api.openai.com/v1",
-        prm_model="gpt-4o",
+        prm_url="https://ark.cn-beijing.volces.com/api/v3",
+        prm_model="doubao-seed-evolving",
         api_key="<your-api-key>",
         prm_m=3,
     )
@@ -143,7 +143,7 @@ class PRMScorer:
     def __init__(
         self,
         prm_url: str,
-        prm_model: str = "gpt-4o",
+        prm_model: str = "doubao-seed-evolving",
         api_key: str = "",
         prm_m: int = 3,
         temperature: float = 0.6,
