@@ -21,12 +21,12 @@
 Agents can already complete complex tasks, but team skills often remain a loose set of files on one machine:
 
 - **Hard to share**: the same experience gets copied across members, machines, and agents.
-- **Hard to version**: it is unclear who changed a skill, what changed, and which version is live.
+- **Hard to version**: skill origin, publisher, version state, and live team content are difficult to keep aligned.
 - **Hard to trust**: a skill may look polished, but there is little evidence that it improves task outcomes.
-- **Easy to over-instrument**: proxying model requests can break native agent behavior and makes open deployment harder.
+- **Hard to standardize**: different agents use different skill directories, loading moments, and team-sync patterns.
 
-**SkillGene has a deliberate boundary: it does not proxy model traffic. It manages, syncs, and validates skill assets.**
-Hermes and other agents keep using their own model configuration directly. SkillGene delivers team skills through synced directories and hooks, so the agent's native skill system remains in control.
+**SkillGene covers the lifecycle of team skill assets: management, sync, attribution, and validation.**
+Hermes and other agents keep their native runtime model. SkillGene delivers team skills through synced directories and hooks, so the agent's native skill system remains in control.
 
 ---
 
@@ -208,8 +208,7 @@ The console includes:
 
 ## Team Skill Sync
 
-SkillGene is no longer an OpenAI-compatible model proxy. `/v1/models` and `/v1/chat/completions` return 404.
-Install `skillgene-sync` on agent machines instead. It pulls team skills before each LLM call and adds the synced directory to the agent's external skill directories.
+Install `skillgene-sync` on agent machines. It pulls team skills before each task run and adds the synced directory to the agent's external skill directories.
 
 ```mermaid
 sequenceDiagram
@@ -252,7 +251,7 @@ If the agent is already running, execute `/reload-skills` to refresh the current
 ### Session Skill Attribution and Efficiency Metrics
 
 The `skillgene-feed` `on_session_end` hook reads the complete Hermes trajectory
-from `state.db`. System, user, assistant, and tool messages are retained:
+from `state.db`, including system, user, assistant, and tool messages:
 
 - `injected_skills`: skills actually exposed in the system prompt's `<available_skills>` block.
 - `used_skills`: skills actually loaded through `skill_view`.

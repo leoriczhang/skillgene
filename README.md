@@ -21,12 +21,12 @@
 Agent 已经能完成复杂任务，但团队技能通常还停留在“某台机器上的一组文件”：
 
 - **技能难共享**：同一条经验在不同成员、不同机器、不同 Agent 里反复复制。
-- **版本难追踪**：技能改过什么、谁上传的、当前团队空间里是哪一版，很难回答。
+- **版本难追踪**：技能来源、发布人、版本状态和当前团队空间内容，很难持续对齐。
 - **质量难判断**：一个技能看起来写得很好，但是否真的改善任务结果，缺少证据。
-- **接入易侵入**：通过代理劫持模型请求会破坏 Agent 原生能力，也不利于开源部署。
+- **接入难标准化**：不同 Agent 的技能目录、加载时机和团队同步方式各不相同。
 
-**SkillGene 的边界很清晰：它不代理模型请求，而是管理、同步和验证技能资产。**
-Hermes 等 Agent 继续直连自己的模型服务；SkillGene 通过同步目录和 Hook 把团队技能带到 Agent 原生技能系统里。
+**SkillGene 面向团队技能资产的完整生命周期：管理、同步、归因与验证。**
+Hermes 等 Agent 保持原生运行方式；SkillGene 通过同步目录和 Hook 把团队技能带到 Agent 原生技能系统里。
 
 ---
 
@@ -208,8 +208,7 @@ flowchart TB
 
 ## 团队技能同步
 
-SkillGene 不再作为 OpenAI 兼容模型代理使用。`/v1/models` 与 `/v1/chat/completions` 会返回 404。
-推荐在 Agent 机器上安装 `skillgene-sync`，在每次 LLM 调用前拉取团队技能，并把同步目录加入 Agent 的外部技能目录。
+推荐在 Agent 机器上安装 `skillgene-sync`，在每次任务执行前拉取团队技能，并把同步目录加入 Agent 的外部技能目录。
 
 ```mermaid
 sequenceDiagram
@@ -252,7 +251,7 @@ hooks:
 ### 会话技能归因与效率指标
 
 `skillgene-feed` 的 `on_session_end` hook 会从 Hermes `state.db` 上传完整轨迹，
-保留 system、user、assistant、tool 消息，不再丢弃工具调用和工具结果：
+完整保留 system、user、assistant、tool 消息，以及工具调用和工具结果：
 
 - `injected_skills`：system prompt 的 `<available_skills>` 中实际暴露的技能。
 - `used_skills`：本次对话实际通过 `skill_view` 加载的技能。
@@ -328,7 +327,7 @@ skillgene/
 ├── skillgene/
 │   ├── cli/              # skillgene 命令行
 │   ├── config_store/     # 本地配置读写
-│   ├── proxy/            # 服务路由、控制台和管理接口
+│   ├── proxy/            # 服务路由、控制台与管理接口
 │   ├── skills/           # SKILL.md 管理、打包、同步
 │   ├── storage/          # local / OpenViking 存储后端
 │   ├── integrations/     # Hermes 集成
