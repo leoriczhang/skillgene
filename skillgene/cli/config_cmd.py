@@ -15,7 +15,7 @@ def config_cmd(key_or_action: str, value: str | None):
 
     Examples:\n
       skillgene config show\n
-      skillgene config proxy.port 30001
+      skillgene config service.port 30001
     """
     cs = ConfigStore()
     if key_or_action == "show":

@@ -1,4 +1,4 @@
-"""Skill management REST API for the SkillGene proxy.
+"""Skill management REST API for the SkillGene service.
 
 ``SkillsAdminMixin`` exposes CRUD + upload endpoints over the local skill
 library (``config.skills_dir``) plus the single-file management UI. Every
@@ -7,10 +7,9 @@ object storage) via :class:`~skillgene.skills.hub.SkillHub` and reloads the
 running :class:`~skillgene.skills.manager.SkillManager` so injected skills stay
 current without a restart.
 
-Routes are intentionally local-management endpoints: they are not gated by the
-proxy bearer token so the operator can manage skills from a browser on the same
-host without juggling API keys. Do not expose the proxy port publicly if this is
-undesirable.
+Routes are intentionally local-management endpoints so the operator can manage
+skills from the authenticated console. Do not expose the service port publicly
+unless it is protected by your deployment boundary.
 """
 
 from __future__ import annotations

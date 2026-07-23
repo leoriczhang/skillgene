@@ -283,19 +283,33 @@ def _copy_skills(
         shutil.rmtree(tmp_root, ignore_errors=True)
 
 
-def _sync_user_space_keys_to_config(user: dict[str, Any]) -> None:
+def _sync_user_space_keys_to_config(config, user: dict[str, Any]) -> Any:
     """Mirror the selected user's OpenViking space keys into global config.
 
-    The proxy's team skill sync reads ``sharing.viking_*_api_key`` from
-    ``~/.skillgene/config.yaml``. User management stores the same credentials in
-    the registry for per-user operations, so keep the global runtime config in
-    sync whenever a user is saved.
+    Team skill sync reads ``sharing.viking_*_api_key`` from the service config.
+    User management stores the same credentials in the registry for per-user
+    operations, so keep the runtime config in sync whenever a user is saved.
     """
-    store = ConfigStore()
-    data = store.load()
-    sharing = data.setdefault("sharing", {})
+    config_file = str(getattr(config, "_config_file", "") or "").strip()
     personal_key = _space_key(user.get("personal_space") or {})
     team_key = _space_key(user.get("team_space") or {})
+    if not config_file:
+        if personal_key:
+            config.sharing_viking_personal_api_key = personal_key
+        elif (user.get("personal_space") or {}).get("backend") == "local":
+            config.sharing_viking_personal_api_key = ""
+        if team_key:
+            config.sharing_viking_team_api_key = team_key
+        elif (user.get("team_space") or {}).get("backend") == "local":
+            config.sharing_viking_team_api_key = ""
+        if personal_key or team_key:
+            config.sharing_enabled = True
+            config.sharing_backend = "viking"
+        return config
+
+    store = ConfigStore(config_file=Path(config_file)) if config_file else ConfigStore()
+    data = store.load()
+    sharing = data.setdefault("sharing", {})
     if personal_key:
         sharing["viking_personal_api_key"] = personal_key
     elif (user.get("personal_space") or {}).get("backend") == "local":
@@ -308,6 +322,7 @@ def _sync_user_space_keys_to_config(user: dict[str, Any]) -> None:
         sharing["enabled"] = True
         sharing["backend"] = "viking"
     store.save(data)
+    return store.to_config()
 
 
 class UsersAdminMixin:
@@ -342,8 +357,7 @@ class UsersAdminMixin:
             data = _load_registry(path)
             user = _upsert_user(data, body)
             _save_registry(path, data)
-            _sync_user_space_keys_to_config(user)
-            owner.config = ConfigStore().to_config()
+            owner.config = _sync_user_space_keys_to_config(owner.config, user)
             return JSONResponse(content=_public_user(user))
 
         @app.delete("/api/users/{user_id}")

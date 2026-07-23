@@ -1,8 +1,7 @@
-"""FastAPI application and route wiring for the proxy.
+"""FastAPI application and route wiring for the SkillGene service.
 
 ``RoutesMixin`` builds the ``FastAPI`` app and its endpoints (console,
-health, skill/user admin, model settings, and internal skill reload) plus the
-bearer-token auth check for internal endpoints. Route bodies delegate to the owning
+health, skill/user admin, model settings, and internal skill reload). Route bodies delegate to the owning
 :class:`~skillgene.proxy.server.ProxyServer` instance.
 """
 
@@ -13,9 +12,9 @@ import os
 import secrets
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -106,7 +105,7 @@ class RoutesMixin:
                 owner._ready_event.clear()
                 await owner._shutdown_cleanup()
 
-        app = FastAPI(title="SkillGene Proxy", lifespan=lifespan)
+        app = FastAPI(title="SkillGene", lifespan=lifespan)
         app.state.owner = self
         self._console_sessions = getattr(self, "_console_sessions", {})
         dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web", "dist"))
@@ -290,7 +289,6 @@ class RoutesMixin:
             prm.setdefault("model", model)
             store.save(data)
             owner.config = store.to_config()
-            owner._served_model = owner.config.served_model_name
             return JSONResponse(content=_model_settings_payload(owner.config, data))
 
         @app.post("/api/evolve-model/test")
@@ -408,21 +406,10 @@ class RoutesMixin:
         @app.post("/internal/reload-skills")
         async def reload_skills(
             request: Request,
-            authorization: Optional[str] = Header(default=None),
         ):
             owner = request.app.state.owner
-            await owner._check_auth(authorization)
             await owner._pull_skills_from_cloud()
             skill_count = len(owner.skill_manager.get_all_skills()) if owner.skill_manager else 0
             return {"ok": True, "skills": skill_count}
 
         return app
-
-    async def _check_auth(self, authorization: Optional[str]):
-        if not self._expected_api_key:
-            return
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="missing bearer token")
-        token = authorization.split(" ", 1)[1].strip()
-        if token != self._expected_api_key:
-            raise HTTPException(status_code=401, detail="invalid api key")

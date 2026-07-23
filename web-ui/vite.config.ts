@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // SkillGene 统一控制台前端。
-// 构建产物输出到 skillgene/web/dist/，由 SkillGene proxy 服务托管。
+// 构建产物输出到 skillgene/web/dist/，由 SkillGene 服务托管。
 // dev 模式下把所有后端 API 转发到本机 8787。
 export default defineConfig({
   plugins: [react(), tailwindcss()],

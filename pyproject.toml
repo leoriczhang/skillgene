@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "skillgene"
 version = "0.1.0"
-description = "SkillGene: shared SKILL.md library management, sync, proxy recording, and optional validation."
+description = "SkillGene: shared SKILL.md library management, sync, console, and optional validation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
     { name = "SkillGene Contributors" },
 ]
-keywords = ["skills", "agents", "skill-library", "llm", "proxy"]
+keywords = ["skills", "agents", "skill-library", "validation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

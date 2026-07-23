@@ -22,11 +22,9 @@ _DEFAULTS: dict = {
         "max_tokens": 100000,
         "temperature": 0.4,
     },
-    "proxy": {
+    "service": {
         "port": 30000,
         "host": "0.0.0.0",
-        "api_key": "",
-        "served_model_name": "skillgene-model",
     },
     "skills": {
         "enabled": True,
@@ -174,15 +172,3 @@ def resolve_skills_dir(skills_dir: Any) -> str:
         return str(expanded)
 
     return str(_DEFAULT_HERMES_SKILLS_DIR)
-
-
-def _default_served_model_name(llm_model_id: str) -> str:
-    """Return the stable service-facing model label kept for compatibility."""
-    raw = str(llm_model_id or "").strip()
-    if not raw:
-        return "skillgene-model"
-
-    normalized = raw.rsplit("/", 1)[-1].lower()
-    if normalized.startswith("gpt-5"):
-        return "skillgene-model"
-    return raw

@@ -141,7 +141,7 @@ def test_skill_hub_persists_bundle_version_snapshots(tmp_path: Path) -> None:
     second_push = hub.push_skills(str(skills_dir))
     assert second_push["uploaded"] == 1
 
-    registry_path = bucket_root / "evolve_skill_registry.json"
+    registry_path = bucket_root / "peers" / "cust-a" / "evolve_skill_registry.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     entry = registry["demo-skill"]
     assert entry["version"] == 2
@@ -152,8 +152,8 @@ def test_skill_hub_persists_bundle_version_snapshots(tmp_path: Path) -> None:
         for item in entry["history"]
     )
 
-    v1_root = bucket_root / "skills" / "demo-skill" / "versions" / "v1"
-    v2_root = bucket_root / "skills" / "demo-skill" / "versions" / "v2"
+    v1_root = bucket_root / "peers" / "cust-a" / "skills" / "demo-skill" / "versions" / "v1"
+    v2_root = bucket_root / "peers" / "cust-a" / "skills" / "demo-skill" / "versions" / "v2"
     assert (v1_root / "SKILL.md").read_text(encoding="utf-8") == SKILL_MD
     assert (v1_root / "files" / "references" / "guide.md").read_bytes() == b"v1 guide\n"
     assert (v2_root / "SKILL.md").read_text(encoding="utf-8") == _skill_md("demo-skill")

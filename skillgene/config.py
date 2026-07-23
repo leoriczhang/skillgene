@@ -1,10 +1,14 @@
 """Unified configuration for SkillGene."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class SkillGeneConfig:
+    # Internal source path used by admin routes that need to persist runtime
+    # config updates back to the same file.
+    _config_file: str = field(default="", repr=False)
+
     # ------------------------------------------------------------------ #
     # Model                                                               #
     # ------------------------------------------------------------------ #
@@ -43,10 +47,6 @@ class SkillGeneConfig:
     # ------------------------------------------------------------------ #
     proxy_port: int = 30000
     proxy_host: str = "0.0.0.0"
-    served_model_name: str = "skillgene-model"
-    proxy_api_key: str = ""
-    record_enabled: bool = True
-    record_dir: str = "records/"
 
     # ------------------------------------------------------------------ #
     # LLM forwarding                                                      #

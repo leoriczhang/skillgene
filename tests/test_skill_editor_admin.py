@@ -247,8 +247,6 @@ def _make_server(tmp_path: Path, *, sharing: bool = False) -> ProxyServer:
 
     config = SkillGeneConfig(
         skills_dir=str(skills_dir),
-        record_enabled=False,
-        record_dir=str(tmp_path / "records"),
         users_registry_path=str(tmp_path / "users.json"),
         sharing_enabled=sharing,
         sharing_backend="local" if sharing else "",

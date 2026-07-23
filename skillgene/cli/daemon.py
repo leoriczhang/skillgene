@@ -22,10 +22,10 @@ def _default_daemon_log_path() -> Path:
     return Path.home() / ".skillgene" / "skillgene.log"
 
 
-def _effective_proxy_port(config_store: ConfigStore, override_port: int | None) -> int:
+def _effective_service_port(config_store: ConfigStore, override_port: int | None) -> int:
     if override_port:
         return override_port
-    return int(config_store.get("proxy.port") or 30000)
+    return int(config_store.get("service.port") or config_store.get("proxy.port") or 30000)
 
 
 def _is_process_alive(pid: int) -> bool:
@@ -216,7 +216,7 @@ def start(port: int | None, daemon: bool, log_file: str | None):
         pid, log_path = _spawn_daemon_process(
             port,
             log_file,
-            effective_port=_effective_proxy_port(cs, port),
+            effective_port=_effective_service_port(cs, port),
         )
         click.echo(
             f"SkillGene started in background (PID={pid}). Logs: {log_path}. "
@@ -232,7 +232,7 @@ def start(port: int | None, daemon: bool, log_file: str | None):
         from ..config_store import ConfigStore as _CS
 
         data = cs.load()
-        data.setdefault("proxy", {})["port"] = port
+        data.setdefault("service", {})["port"] = port
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8")
         try:
             yaml.dump(data, tmp)
@@ -293,7 +293,7 @@ def status():
         return
 
     cs = ConfigStore()
-    port = int(cs.get("proxy.port") or 30000)
+    port = int(cs.get("service.port") or cs.get("proxy.port") or 30000)
 
     healthy = _healthz_ready(port, timeout=2.0)
     if healthy:

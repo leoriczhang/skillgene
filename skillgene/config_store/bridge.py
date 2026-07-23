@@ -17,7 +17,6 @@ from .defaults import (
     CONFIG_FILE,
     _coerce,
     _deep_merge,
-    _default_served_model_name,
     _first_non_empty,
     _infer_sharing_backend,
     _normalize_choice,
@@ -45,7 +44,10 @@ class ConfigStore:
 
             with open(self.config_file, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-            return _deep_merge(_DEFAULTS, data)
+            merged = _deep_merge(_DEFAULTS, data)
+            if "service" not in data and isinstance(data.get("proxy"), dict):
+                merged["service"] = dict(merged.get("proxy") or {})
+            return merged
         except Exception:
             return _deep_merge({}, _DEFAULTS)
 
@@ -88,6 +90,7 @@ class ConfigStore:
         llm_max_tokens = int(llm.get("max_tokens", 100000) or 100000)
         llm_temperature = float(llm.get("temperature", 0.4) if llm.get("temperature") is not None else 0.4)
         proxy = data.get("proxy", {})
+        service = data.get("service", {})
         skills = data.get("skills", {})
         orouter = data.get("openrouter", {})
         prm = data.get("prm", {})
@@ -109,6 +112,7 @@ class ConfigStore:
         skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
 
         return SkillGeneConfig(
+            _config_file=str(self.config_file),
             # LLM forwarding
             llm_provider=llm_provider,
             llm_api_base=llm_api_base,
@@ -123,13 +127,9 @@ class ConfigStore:
             openrouter_route=orouter.get("route", "fallback"),
             openrouter_fallback_models=orouter.get("fallback_models", ""),
             openrouter_data_policy=orouter.get("data_policy", ""),
-            # Proxy
-            proxy_port=proxy.get("port", 30000),
-            proxy_host=proxy.get("host", "0.0.0.0"),
-            proxy_api_key=str(proxy.get("api_key", "") or ""),
-            served_model_name=(
-                _first_non_empty(proxy, "served_model_name") or _default_served_model_name(llm_model_id)
-            ),
+            # Service
+            proxy_port=service.get("port", proxy.get("port", 30000)),
+            proxy_host=service.get("host", proxy.get("host", "0.0.0.0")),
             # Skills
             use_skills=bool(skills.get("enabled", True)),
             skills_dir=skills_dir,
@@ -223,7 +223,7 @@ class ConfigStore:
                 if llm.get("provider") == "openrouter"
                 else []
             ),
-            f"proxy.port:      {data.get('proxy', {}).get('port', 30000)}",
+            f"service.port:    {data.get('service', {}).get('port', data.get('proxy', {}).get('port', 30000))}",
             f"skills.enabled:  {skills.get('enabled', True)}",
             f"skills.dir:      {effective_skills_dir}",
             f"prm.enabled:     {prm.get('enabled', False)}",

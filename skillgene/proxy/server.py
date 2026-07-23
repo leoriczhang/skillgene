@@ -62,7 +62,6 @@ class ProxyServer(
         self._last_request_tracker = last_request_tracker
         self._last_request_at = time.time()
 
-        self._expected_api_key = config.proxy_api_key
         self._background_tasks: set[asyncio.Task] = set()
         self._skill_reload_task: Optional[asyncio.Task] = None
         self._shutdown_drain_timeout_seconds = 15

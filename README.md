@@ -79,7 +79,7 @@ skillgene skills pull
 启动 SkillGene 服务：
 
 ```bash
-skillgene config proxy.port 30000  # 服务端口
+skillgene config service.port 30000  # 服务端口
 skillgene start --daemon
 skillgene status
 ```
@@ -179,7 +179,7 @@ skillgene/
 ├── skillgene/
 │   ├── cli/              # skillgene 命令行
 │   ├── config_store/     # 本地配置读写
-│   ├── proxy/            # Web 服务路由、控制台和管理接口
+│   ├── proxy/            # Web 服务兼容包：路由、控制台和管理接口
 │   ├── skills/           # SKILL.md 管理、打包、同步
 │   ├── storage/          # local / OpenViking 存储后端
 │   ├── integrations/     # Hermes 集成

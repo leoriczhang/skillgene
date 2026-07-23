@@ -1,7 +1,7 @@
 """Skill synchronization helpers for the SkillGene service.
 
-The service does not upload proxy-originated sessions into evolution.
-Evolution input is accepted only through the evolve server's
+The service does not upload model-session traffic into evolution. Evolution
+input is accepted only through the evolve server's
 ``/ingest_session`` endpoint (username + session payload). This mixin keeps
 skill pull/reload and background-task drain behavior for service runtime use.
 """

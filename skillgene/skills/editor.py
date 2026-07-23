@@ -1,7 +1,7 @@
 """Local skill library editing: create, update, delete, and bundle files.
 
 Pure on-disk operations over the configured ``skills_dir`` used by the skill
-management UI. Cloud sync is layered on top by the proxy admin routes; this
+management UI. Cloud sync is layered on top by the service admin routes; this
 module never touches object storage so it stays trivially testable.
 
 All operations build on the shared :mod:`skillgene.skills.bundle`,
