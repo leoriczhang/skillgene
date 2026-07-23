@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from ..config_store import ConfigStore
 from ..skills.bundle import write_skill_bundle
 from ..skills.hub import SkillHub
 
@@ -28,6 +29,10 @@ _ROLES = {"user", "admin"}
 _SPACES = {"personal", "team"}
 _DIRECTIONS = {"personal_to_team", "team_to_personal"}
 _PASSWORD_ITERATIONS = 260_000
+
+
+def _space_key(space: dict[str, Any]) -> str:
+    return str((space or {}).get("viking_api_key") or "").strip()
 
 
 def _now() -> str:
@@ -211,20 +216,25 @@ def _hub_from_user(config, user: dict[str, Any], *, space: str) -> SkillHub:
     backend = str(space_cfg.get("backend") or "local")
     user_id = str(user.get("id") or "")
     if backend == "viking":
+        fallback_key = (
+            str(getattr(config, "sharing_viking_team_api_key", "") or "")
+            if is_team
+            else str(getattr(config, "sharing_viking_personal_api_key", "") or "")
+        ) or str(getattr(config, "sharing_viking_api_key", "") or "")
         return SkillHub(
             backend="viking",
             endpoint="",
             local_root="",
             customer_id="" if is_team else user_id,
             user_alias=str(user.get("display_name") or user_id or "anonymous"),
-            viking_endpoint=_DEFAULT_OPENVIKING_ENDPOINT,
-            viking_api_key=str(space_cfg.get("viking_api_key") or ""),
-            viking_account=_DEFAULT_ACCOUNT,
-            viking_user=_DEFAULT_USER,
-            viking_agent=_DEFAULT_AGENT,
-            viking_agent_id="",
-            viking_root_prefix=_DEFAULT_ROOT_PREFIX,
-            viking_group_id="",
+            viking_endpoint=str(getattr(config, "sharing_viking_endpoint", "") or _DEFAULT_OPENVIKING_ENDPOINT),
+            viking_api_key=_space_key(space_cfg) or fallback_key,
+            viking_account=str(getattr(config, "sharing_viking_account", "") or _DEFAULT_ACCOUNT),
+            viking_user=str(getattr(config, "sharing_viking_user", "") or _DEFAULT_USER),
+            viking_agent=str(getattr(config, "sharing_viking_agent", "") or _DEFAULT_AGENT),
+            viking_agent_id=str(getattr(config, "sharing_viking_agent_id", "") or ""),
+            viking_root_prefix=str(getattr(config, "sharing_viking_root_prefix", "") or _DEFAULT_ROOT_PREFIX),
+            viking_group_id=str(getattr(config, "sharing_viking_group_id", "") or ""),
             viking_namespace="resources",
         )
     return SkillHub(
@@ -273,6 +283,33 @@ def _copy_skills(
         shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+def _sync_user_space_keys_to_config(user: dict[str, Any]) -> None:
+    """Mirror the selected user's OpenViking space keys into global config.
+
+    The proxy's team skill sync reads ``sharing.viking_*_api_key`` from
+    ``~/.skillgene/config.yaml``. User management stores the same credentials in
+    the registry for per-user operations, so keep the global runtime config in
+    sync whenever a user is saved.
+    """
+    store = ConfigStore()
+    data = store.load()
+    sharing = data.setdefault("sharing", {})
+    personal_key = _space_key(user.get("personal_space") or {})
+    team_key = _space_key(user.get("team_space") or {})
+    if personal_key:
+        sharing["viking_personal_api_key"] = personal_key
+    elif (user.get("personal_space") or {}).get("backend") == "local":
+        sharing["viking_personal_api_key"] = ""
+    if team_key:
+        sharing["viking_team_api_key"] = team_key
+    elif (user.get("team_space") or {}).get("backend") == "local":
+        sharing["viking_team_api_key"] = ""
+    if personal_key or team_key:
+        sharing["enabled"] = True
+        sharing["backend"] = "viking"
+    store.save(data)
+
+
 class UsersAdminMixin:
     """CRUD, role and sharing routes for registered SkillGene users."""
 
@@ -305,6 +342,8 @@ class UsersAdminMixin:
             data = _load_registry(path)
             user = _upsert_user(data, body)
             _save_registry(path, data)
+            _sync_user_space_keys_to_config(user)
+            owner.config = ConfigStore().to_config()
             return JSONResponse(content=_public_user(user))
 
         @app.delete("/api/users/{user_id}")
