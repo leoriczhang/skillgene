@@ -363,9 +363,6 @@ python -m build
 
 ## 参考与引用
 
-SkillGene 的 README 组织方式参考了 [OpenSpace](https://github.com/HKUDS/OpenSpace) 的产品化文档风格：居中 Hero、徽章、价值卡片、系统图、质量闭环和明确的使用路径。
-技术概念上，SkillGene 关注标准 `SKILL.md` 技能资产、Agent 原生技能加载、团队对象存储同步，以及可选的真实轨迹验证。
-
 相关项目与资料：
 
 - [OpenSpace](https://github.com/HKUDS/OpenSpace)：质量优先的 Agent Skill Hub。

@@ -364,9 +364,6 @@ python -m build
 
 ## References
 
-This README borrows its product-documentation structure from [OpenSpace](https://github.com/HKUDS/OpenSpace): centered hero, badges, value cards, architecture diagrams, quality-loop narrative, and a clear usage path.
-Technically, SkillGene focuses on standard `SKILL.md` assets, native agent skill loading, team object-store sync, and optional real-trajectory validation.
-
 Related projects and references:
 
 - [OpenSpace](https://github.com/HKUDS/OpenSpace): a quality-first skill hub for AI agents.
