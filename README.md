@@ -91,6 +91,37 @@ skillgene status
 http://127.0.0.1:30000/console
 ```
 
+## 连接其他机器上的 Hermes
+
+如果你已经在一台服务器上部署了 SkillGene proxy，其他机器上的 Hermes 可以直接把
+OpenAI 兼容模型配置指向这个 proxy。这样 Hermes 的模型请求会经过 SkillGene，
+SkillGene 会负责技能注入、会话记录和共享技能同步。
+
+在 Hermes 机器上修改 `$HERMES_HOME/config.yaml`：
+
+```yaml
+model:
+  provider: custom
+  base_url: "http://<skillgene-host>:<proxy-port>/v1"
+  default: "skillgene-model"
+  api_key: "<optional-proxy-api-key>"
+```
+
+如果 SkillGene proxy 没有配置 `proxy.api_key`，`api_key` 可以留空或省略。
+
+验证连接：
+
+```bash
+curl http://<skillgene-host>:<proxy-port>/healthz
+curl http://<skillgene-host>:<proxy-port>/v1/models
+```
+
+然后启动 Hermes，执行一次普通对话。若 Hermes 已在运行，可重启 Hermes 或重新加载模型配置。
+
+可选：如果不想让模型流量经过 proxy，只想在会话结束后把 Hermes 会话回流给一个
+SkillGene / evolve ingest 服务，可使用下面的 `skillgene-feed` hook。注意：该 hook
+需要目标服务提供 `/ingest_session` 接口。
+
 ## OpenViking / 对象存储
 
 SkillGene 的远端同步通过对象存储抽象完成。OpenViking 配置示例：

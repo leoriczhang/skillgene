@@ -92,6 +92,39 @@ Open the console:
 http://127.0.0.1:30000/console
 ```
 
+## Connect Hermes on Other Machines
+
+If SkillGene proxy is already deployed on one server, Hermes on other machines
+can point its OpenAI-compatible model configuration to that proxy. Hermes model
+requests will then go through SkillGene, which can inject skills, record
+sessions, and keep the shared skill library synchronized.
+
+Edit `$HERMES_HOME/config.yaml` on the Hermes machine:
+
+```yaml
+model:
+  provider: custom
+  base_url: "http://<skillgene-host>:<proxy-port>/v1"
+  default: "skillgene-model"
+  api_key: "<optional-proxy-api-key>"
+```
+
+If the SkillGene proxy has no `proxy.api_key`, `api_key` may be empty or omitted.
+
+Verify connectivity:
+
+```bash
+curl http://<skillgene-host>:<proxy-port>/healthz
+curl http://<skillgene-host>:<proxy-port>/v1/models
+```
+
+Then start Hermes and run a normal conversation. If Hermes is already running,
+restart it or reload its model configuration.
+
+Optional: if you do not want model traffic to go through the proxy and only
+want to submit Hermes sessions after each conversation, use the `skillgene-feed`
+hook below. The hook target must expose an `/ingest_session` endpoint.
+
 ## OpenViking / Object Storage
 
 Remote sync is implemented through SkillGene's object-store abstraction.
