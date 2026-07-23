@@ -13,8 +13,7 @@ import os
 import secrets
 import time
 from contextlib import asynccontextmanager
-from typing import Any
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -32,6 +31,9 @@ from .users_admin import (
 from .messages import _rewrite_new_session_bootstrap_prompt
 from .session import _resolve_session_done, _resolve_turn_type
 from ..config_store import ConfigStore
+from ..skills.hub import SkillHub
+from ..storage import is_not_found_error
+from ..validation.store import ValidationStore
 
 logger = logging.getLogger(__name__)
 _SESSION_COOKIE = "skillgene_console_session"
@@ -54,6 +56,40 @@ def _model_settings_payload(config, store_data: dict[str, Any]) -> dict[str, Any
 def _require_admin_user(user: dict | None) -> None:
     if not user or str(user.get("role") or "user") != "admin":
         raise HTTPException(status_code=403, detail="only admin users can perform this operation")
+
+
+def _storage_status(config) -> dict[str, Any]:
+    backend = str(getattr(config, "sharing_backend", "") or "").strip().lower()
+    endpoint = str(getattr(config, "sharing_viking_endpoint", "") or getattr(config, "sharing_endpoint", "") or "")
+    namespace = "resources" if backend == "viking" else backend or "none"
+    api_key_present = bool(
+        str(getattr(config, "sharing_viking_team_api_key", "") or "")
+        or str(getattr(config, "sharing_viking_api_key", "") or "")
+    )
+    payload: dict[str, Any] = {
+        "backend": backend or "none",
+        "endpoint": endpoint,
+        "namespace": namespace,
+        "api_key_present": api_key_present,
+        "reachable": False,
+    }
+    if not getattr(config, "sharing_enabled", False):
+        payload["reason"] = "sharing_disabled"
+        return payload
+    try:
+        hub = SkillHub.team_from_config(config)
+        # Probe the configured store. Missing manifest is still a successful
+        # connectivity check: it means the bucket/key is reachable but empty.
+        try:
+            hub._bucket.get_object(hub._manifest_key())
+        except Exception as exc:  # noqa: BLE001
+            if not is_not_found_error(exc):
+                raise
+        payload["reachable"] = True
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        payload["reason"] = str(exc)
+        return payload
 
 
 class RoutesMixin:
@@ -319,6 +355,58 @@ class RoutesMixin:
         @app.get("/healthz")
         async def healthz():
             return {"ok": True}
+
+        @app.get("/health")
+        async def health():
+            return {"status": "ok"}
+
+        @app.get("/storage/status")
+        async def storage_status():
+            return JSONResponse(content=_storage_status(owner.config))
+
+        @app.get("/status")
+        async def dashboard_status():
+            skills: dict[str, dict[str, Any]] = {}
+            try:
+                hub = SkillHub.team_from_config(owner.config)
+                for item in hub.list_remote():
+                    name = str(item.get("name") or "")
+                    if not name:
+                        continue
+                    skills[name] = {
+                        "skill_id": item.get("skill_id") or name,
+                        "version": item.get("version") or 0,
+                    }
+            except Exception:
+                pass
+            if not skills and owner.skill_manager is not None:
+                for skill in owner.skill_manager.get_all_skills():
+                    name = str(skill.get("name") or "")
+                    if name:
+                        skills[name] = {"skill_id": name, "version": 0}
+            return {
+                "running": False,
+                "pending_sessions": 0,
+                "registered_skills": len(skills),
+                "skills": skills,
+            }
+
+        @app.get("/sessions")
+        async def dashboard_sessions():
+            return {"reachable": True, "sessions": []}
+
+        @app.get("/conversations")
+        async def dashboard_conversations(limit: int = 100):
+            return {"reachable": True, "conversations": []}
+
+        @app.get("/validation/candidates")
+        async def validation_candidates():
+            try:
+                store = ValidationStore.from_config(owner.config)
+                candidates = store.list_open_jobs(user_alias=str(owner.config.sharing_user_alias or ""))
+            except Exception:
+                candidates = []
+            return {"candidates": candidates}
 
         @app.post("/internal/reload-skills")
         async def reload_skills(
