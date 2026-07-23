@@ -12,8 +12,10 @@ Agent 使用经验沉淀成可复用的团队技能资产。
 - **本地/远端同步**：支持本地目录和 OpenViking 兼容对象存储。
 - **技能版本记录**：为技能生成稳定 ID，并记录版本、内容 hash 和历史。
 - **代理录制**：可启动 OpenAI 兼容代理服务，记录会话与技能使用信号。
+- **Web 控制台**：内置 React + TypeScript 控制台，可管理技能、用户、候选评审和系统健康。
 - **Hermes 接入**：提供 `skillgene-feed`，把 Hermes 会话回流到 SkillGene 服务。
 - **可选验证**：通过 OpenAI 兼容模型和 PRM 对候选技能进行回放评估。
+- **True Replay**：在隔离沙盒中启动真实 Hermes Agent，对候选技能做 A/B 工具轨迹回放。
 
 ## 安装
 
@@ -83,6 +85,12 @@ skillgene start --daemon
 skillgene status
 ```
 
+打开控制台：
+
+```text
+http://127.0.0.1:30000/console
+```
+
 ## OpenViking / 对象存储
 
 SkillGene 的远端同步通过对象存储抽象完成。OpenViking 配置示例：
@@ -120,6 +128,34 @@ python skillgene/integrations/hermes_skill/install.py \
 该脚本会把 `skillgene-feed` 安装到 Hermes home，并注册 `on_session_end`
 hook。Hermes 的源码不需要修改。
 
+## True Replay
+
+安装 True Replay 依赖：
+
+```bash
+python -m pip install -e ".[truereplay]"
+```
+
+用共享验证队列中的 job 回放：
+
+```bash
+python -m skillgene.true_replay --job-id <validation-job-id> --json
+```
+
+也可以用本地 JSON 文件独立回放：
+
+```bash
+python -m skillgene.true_replay --job-file ./candidate_job.json --dry-run
+python -m skillgene.true_replay --job-file ./candidate_job.json --json
+```
+
+True Replay 会为 baseline 和 candidate 两个分支分别创建临时 `HOME` 与
+`HERMES_HOME`，真实 `~/.hermes` 不会被修改。若使用本地 Hermes checkout，可设置：
+
+```bash
+export HERMES_ORIGIN=/path/to/hermes-agent
+```
+
 ## 项目结构
 
 ```text
@@ -131,7 +167,10 @@ skillgene/
 │   ├── skills/           # SKILL.md 管理、打包、同步
 │   ├── storage/          # local / OpenViking 存储后端
 │   ├── integrations/     # Hermes 集成
-│   └── validation/       # 可选候选技能验证
+│   ├── validation/       # 可选候选技能验证
+│   ├── true_replay.py    # 真实 A/B 回放
+│   └── web/              # 控制台构建产物
+├── web-ui/               # React + TypeScript 控制台源码
 ├── tests/
 ├── scripts/
 └── pyproject.toml
@@ -147,14 +186,11 @@ python -m pytest
 构建：
 
 ```bash
+npm --prefix web-ui install
+npm --prefix web-ui run build
 python -m pip install build
 python -m build
 ```
-
-## 说明
-
-这个仓库只包含 SkillGene 相关代码。完整的团队技能进化控制台、评估服务、
-数据集生成器和其他实验性组件不在本仓库内。
 
 ## License
 

@@ -39,12 +39,16 @@ sharing = [
 validation = [
     "openai>=1.0",
 ]
+truereplay = [
+    "hermes-agent @ git+https://github.com/nousresearch/hermes-agent.git",
+    "openai>=1.0",
+]
 dev = [
     "pytest>=8.0",
     "anyio>=4.0",
 ]
 all = [
-    "skillgene[sharing,validation]",
+    "skillgene[sharing,validation,truereplay]",
 ]
 
 [project.urls]
@@ -60,7 +64,12 @@ where = ["."]
 include = ["skillgene*"]
 
 [tool.setuptools.package-data]
-skillgene = ["web/*.html", "integrations/hermes_skill/*"]
+skillgene = [
+    "web/*.html",
+    "web/dist/*.html",
+    "web/dist/assets/*",
+    "integrations/hermes_skill/*",
+]
 
 [tool.ruff]
 line-length = 120

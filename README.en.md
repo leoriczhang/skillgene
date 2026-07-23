@@ -13,8 +13,10 @@ candidate validation.
 - **Local and remote sync**: local filesystem storage plus OpenViking-compatible object storage.
 - **Version tracking**: stable skill IDs, content hashes, versions, and update history.
 - **Proxy recording**: OpenAI-compatible proxy service that records sessions and skill signals.
+- **Web console**: built-in React + TypeScript console for skills, users, candidate review, and health checks.
 - **Hermes integration**: `skillgene-feed` can submit Hermes sessions back to a SkillGene service.
 - **Optional validation**: replay candidate skills with an OpenAI-compatible model and PRM scorer.
+- **True Replay**: run real Hermes agents in isolated sandboxes for candidate-vs-baseline A/B trajectory replay.
 
 ## Install
 
@@ -84,6 +86,12 @@ skillgene start --daemon
 skillgene status
 ```
 
+Open the console:
+
+```text
+http://127.0.0.1:30000/console
+```
+
 ## OpenViking / Object Storage
 
 Remote sync is implemented through SkillGene's object-store abstraction.
@@ -122,6 +130,35 @@ python skillgene/integrations/hermes_skill/install.py \
 The installer copies `skillgene-feed` into the Hermes home and registers an
 `on_session_end` hook. No Hermes source-code modification is required.
 
+## True Replay
+
+Install True Replay dependencies:
+
+```bash
+python -m pip install -e ".[truereplay]"
+```
+
+Replay a job from the shared validation queue:
+
+```bash
+python -m skillgene.true_replay --job-id <validation-job-id> --json
+```
+
+Replay a local JSON job file:
+
+```bash
+python -m skillgene.true_replay --job-file ./candidate_job.json --dry-run
+python -m skillgene.true_replay --job-file ./candidate_job.json --json
+```
+
+True Replay creates temporary `HOME` and `HERMES_HOME` directories for both
+baseline and candidate branches. Your real `~/.hermes` is not modified. To use
+a local Hermes checkout:
+
+```bash
+export HERMES_ORIGIN=/path/to/hermes-agent
+```
+
 ## Layout
 
 ```text
@@ -133,7 +170,10 @@ skillgene/
 │   ├── skills/           # SKILL.md management, bundling, sync
 │   ├── storage/          # local / OpenViking storage backends
 │   ├── integrations/     # Hermes integration
-│   └── validation/       # optional candidate-skill validation
+│   ├── validation/       # optional candidate-skill validation
+│   ├── true_replay.py    # true A/B replay
+│   └── web/              # built console assets
+├── web-ui/               # React + TypeScript console source
 ├── tests/
 ├── scripts/
 └── pyproject.toml
@@ -149,15 +189,11 @@ python -m pytest
 Build:
 
 ```bash
+npm --prefix web-ui install
+npm --prefix web-ui run build
 python -m pip install build
 python -m build
 ```
-
-## Note
-
-This repository contains the SkillGene package only. The broader team skill
-evolution console, evaluation server, dataset generator, and experimental
-components are intentionally not included here.
 
 ## License
 

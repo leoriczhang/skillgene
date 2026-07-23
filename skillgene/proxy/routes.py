@@ -9,13 +9,15 @@ bearer-token auth check. Route bodies delegate to the owning
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from .users_admin import (
     _find_user,
@@ -54,6 +56,11 @@ class RoutesMixin:
         app = FastAPI(title="SkillGene Proxy", lifespan=lifespan)
         app.state.owner = self
         self._console_sessions = getattr(self, "_console_sessions", {})
+        dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web", "dist"))
+        dist_index = os.path.join(dist_dir, "index.html")
+        dist_assets = os.path.join(dist_dir, "assets")
+        if os.path.isdir(dist_assets):
+            app.mount("/assets", StaticFiles(directory=dist_assets), name="assets")
 
         def _session_user(request: Request) -> dict | None:
             token = request.cookies.get(_SESSION_COOKIE, "")
@@ -94,6 +101,13 @@ class RoutesMixin:
         # Skill and user management REST APIs used by the unified console.
         self._register_skills_admin_routes(app)
         self._register_users_admin_routes(app)
+
+        @app.get("/")
+        @app.get("/console")
+        async def console():
+            if os.path.isfile(dist_index):
+                return FileResponse(dist_index)
+            return JSONResponse(status_code=404, content={"detail": "SkillGene console is not built"})
 
         @app.get("/api/auth/status")
         async def auth_status(request: Request):
