@@ -160,9 +160,9 @@ function LoginGate({
   onAuthed: (status: AuthStatus) => void;
 }) {
   const [username, setUsername] = useState(needsSetup ? "admin" : "");
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(needsSetup ? "admin" : "");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(needsSetup ? "admin" : "");
   const [loading, setLoading] = useState(false);
 
   async function submit() {
@@ -198,7 +198,7 @@ function LoginGate({
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
             {needsSetup
-              ? "当前还没有用户。请先创建一个管理员账号，之后所有前端访问都需要登录。"
+              ? "当前还没有用户。默认管理员账号和密码均为 admin，可直接创建后登录。"
               : "请输入账号密码后继续访问团队技能进化控制台。"}
           </p>
         </div>
@@ -221,7 +221,7 @@ function LoginGate({
             <Input
               type="password"
               value={password}
-              placeholder={needsSetup ? "至少 8 位" : "请输入密码"}
+              placeholder={needsSetup ? "默认 admin" : "请输入密码"}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();

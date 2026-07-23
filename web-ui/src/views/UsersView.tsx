@@ -232,7 +232,7 @@ export default function UsersView({ active }: { active: boolean }) {
               <Input
                 type="password"
                 value={form.password || ""}
-                placeholder={selectedId ? "留空保留原密码" : "至少 8 位"}
+                placeholder={selectedId ? "留空保留原密码" : "可使用任意长度"}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
             </Field>

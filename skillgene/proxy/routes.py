@@ -125,12 +125,10 @@ class RoutesMixin:
             body = await request.json()
             if not isinstance(body, dict):
                 raise HTTPException(status_code=400, detail="bootstrap body must be an object")
-            password = str(body.get("password") or "")
-            if len(password) < 8:
-                raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+            password = str(body.get("password") or "admin")
             payload = {
                 "id": body.get("username") or body.get("id") or "admin",
-                "display_name": body.get("display_name") or body.get("username") or "Admin",
+                "display_name": body.get("display_name") or body.get("username") or "admin",
                 "email": body.get("email") or "",
                 "role": "admin",
                 "password": password,
