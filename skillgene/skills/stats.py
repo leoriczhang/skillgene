@@ -1,6 +1,6 @@
 """Per-skill injection/feedback statistics.
 
-Tracks how often each skill is injected into a request and the PRM feedback it
+Tracks how often each skill is injected into a request and the feedback it
 subsequently receives, deriving an effectiveness score. Persisted as
 ``skill_stats.json`` beside the skills directory and flushed every N mutations
 to avoid excessive I/O.
@@ -87,7 +87,7 @@ class SkillStats:
         self._maybe_flush()
 
     def record_feedback(self, skill_names: list[str], score: float) -> None:
-        """Record PRM feedback for skills injected in a turn."""
+        """Record feedback for skills injected in a turn."""
         for name in skill_names:
             entry = self._stats.get(name)
             if entry is None:

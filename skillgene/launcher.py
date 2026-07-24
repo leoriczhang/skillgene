@@ -57,7 +57,6 @@ class Launcher:
     # ------------------------------------------------------------------ #
 
     async def _run(self, cfg):
-        from .prm import PRMScorer
         from .proxy import ProxyServer
         from .skills.manager import SkillManager
 
@@ -69,31 +68,6 @@ class Launcher:
                 public_skill_root=cfg.skills_public_root,
             )
             logger.info("[Launcher] SkillManager loaded: %s skills", skill_manager.get_skill_count())
-
-        prm_scorer = None
-        prm_url = (cfg.prm_url or cfg.llm_api_base or "").strip()
-        prm_model = (cfg.prm_model or cfg.llm_model_id or "").strip()
-        prm_api_key = (cfg.prm_api_key or cfg.llm_api_key or "").strip()
-
-        if cfg.use_prm and prm_url and prm_model:
-            prm_scorer = PRMScorer(
-                prm_url=prm_url,
-                prm_model=prm_model,
-                api_key=prm_api_key,
-                prm_m=cfg.prm_m,
-                temperature=cfg.prm_temperature,
-                max_new_tokens=cfg.prm_max_new_tokens,
-                llm_client=None,
-            )
-        elif cfg.use_prm:
-            logger.warning(
-                "[Launcher] PRM enabled but endpoint/model missing "
-                "(prm_url=%r prm_model=%r llm_api_base=%r llm_model_id=%r); PRM disabled",
-                cfg.prm_url,
-                cfg.prm_model,
-                cfg.llm_api_base,
-                cfg.llm_model_id,
-            )
 
         # Auto-pull shared skills on startup
         if cfg.sharing_enabled and cfg.sharing_auto_pull_on_start:
@@ -121,7 +95,6 @@ class Launcher:
             config=cfg,
             sampling_client=None,
             skill_manager=skill_manager,
-            prm_scorer=prm_scorer,
         )
         server.start()
         self._api_server = server

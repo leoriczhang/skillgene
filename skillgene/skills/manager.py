@@ -71,7 +71,7 @@ class SkillManager:
         self._stats.record_injection(skill_names)
 
     def record_feedback(self, skill_names: list[str], score: float) -> None:
-        """Record PRM feedback for skills injected in a turn."""
+        """Record feedback for skills injected in a turn."""
         self._stats.record_feedback(skill_names, score)
 
     def get_effectiveness(self, skill_name: str) -> float:

@@ -39,13 +39,6 @@ _DEFAULTS: dict = {
         "fallback_models": "",
         "data_policy": "",
     },
-    "prm": {
-        "enabled": True,
-        "provider": "openai",
-        "url": "https://ark.cn-beijing.volces.com/api/v3",
-        "model": "doubao-seed-evolving",
-        "api_key": "",
-    },
     "sharing": {
         "enabled": False,
         "backend": "",
@@ -148,8 +141,8 @@ def _infer_sharing_backend(sharing: dict[str, Any]) -> str:
 
 
 def _normalize_validation_mode(value: Any) -> str:
-    del value
-    return "replay"
+    normalized = str(value or "replay").strip().lower().replace("-", "_")
+    return normalized if normalized in {"replay", "true_replay"} else "replay"
 
 
 def _normalize_choice(value: Any, allowed: set[str], default: str) -> str:

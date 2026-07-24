@@ -16,7 +16,6 @@ from typing import Optional
 import uvicorn
 
 from ..config import SkillGeneConfig
-from ..prm import PRMScorer
 from ..skills.manager import SkillManager
 from .routes import RoutesMixin
 from .skills_admin import SkillsAdminMixin
@@ -43,8 +42,6 @@ class ProxyServer(
         SkillGeneConfig instance.
     skill_manager:
         Optional SkillManager for injecting skills into system prompts.
-    prm_scorer:
-        Optional PRMScorer for turn feedback.
     """
 
     def __init__(
@@ -52,13 +49,11 @@ class ProxyServer(
         config: SkillGeneConfig,
         sampling_client=None,
         skill_manager: Optional[SkillManager] = None,
-        prm_scorer: Optional[PRMScorer] = None,
         last_request_tracker=None,
     ):
         self.config = config
         self._sampling_client = sampling_client
         self.skill_manager = skill_manager
-        self.prm_scorer = prm_scorer
         self._last_request_tracker = last_request_tracker
         self._last_request_at = time.time()
 

@@ -24,6 +24,9 @@ class AsyncLLMClient:
         model: str = "doubao-seed-evolving",
         max_tokens: int = 100000,
         temperature: float = 0.4,
+        timeout_seconds: float = 600.0,
+        connect_timeout_seconds: float = 30.0,
+        max_retries: int = 6,
     ) -> None:
         import httpx
         from openai import OpenAI
@@ -31,11 +34,12 @@ class AsyncLLMClient:
         self._client = OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
             base_url=base_url or os.environ.get("OPENAI_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-            timeout=httpx.Timeout(600.0, connect=30.0),
+            timeout=httpx.Timeout(float(timeout_seconds), connect=float(connect_timeout_seconds)),
         )
         self.model = model or os.environ.get("SKILLGENE_MODEL", "doubao-seed-evolving")
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.max_retries = max(1, int(max_retries or 1))
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         requested_temperature = kwargs.pop("temperature", self.temperature)
@@ -46,8 +50,7 @@ class AsyncLLMClient:
             "temperature": _normalize_temperature(self.model, requested_temperature),
             **kwargs,
         }
-        max_retries = 6
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 resp = await asyncio.to_thread(self._client.chat.completions.create, **merged)
                 return resp.choices[0].message.content or ""
@@ -57,7 +60,7 @@ class AsyncLLMClient:
                 if status_code == 400 and "'temperature' is not supported" in body_text:
                     merged.pop("temperature", None)
                     continue
-                if attempt < max_retries - 1:
+                if attempt < self.max_retries - 1:
                     import random
 
                     await asyncio.sleep(min(2**attempt + random.uniform(0, 1), 30))

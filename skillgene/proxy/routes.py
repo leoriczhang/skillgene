@@ -7,11 +7,14 @@ health, skill/user admin, model settings, and internal skill reload). Route bodi
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -28,6 +31,8 @@ from .users_admin import (
     _verify_password,
 )
 from ..config_store import ConfigStore
+from ..session_filter import SessionValueClassifier
+from ..session_store import SessionStore
 from ..skills.hub import SkillHub
 from ..storage import is_not_found_error
 from ..validation.store import ValidationStore
@@ -53,6 +58,117 @@ def _model_settings_payload(config, store_data: dict[str, Any]) -> dict[str, Any
 def _require_admin_user(user: dict | None) -> None:
     if not user or str(user.get("role") or "user") != "admin":
         raise HTTPException(status_code=403, detail="only admin users can perform this operation")
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_session_id(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip(".-/")[:160] or "session"
+
+
+def _check_ingest_api_key(request: Request) -> None:
+    expected = str(os.environ.get("EVOLVE_INGEST_API_KEY") or "").strip()
+    if not expected:
+        return
+    header = str(request.headers.get("authorization") or "").strip()
+    token = header[7:].strip() if header.lower().startswith("bearer ") else header
+    if token != expected:
+        raise HTTPException(status_code=401, detail="invalid ingest api key")
+
+
+def _max_session_body_bytes() -> int:
+    try:
+        value = int(os.environ.get("SKILLGENE_MAX_SESSION_BODY_BYTES", str(8 * 1024 * 1024)) or 0)
+    except ValueError:
+        value = 8 * 1024 * 1024
+    return max(1024, value)
+
+
+async def _read_limited_json_body(request: Request) -> dict[str, Any]:
+    raw = await request.body()
+    limit = _max_session_body_bytes()
+    if len(raw) > limit:
+        raise HTTPException(status_code=413, detail=f"session body exceeds {limit} bytes")
+    try:
+        parsed = json.loads(raw.decode("utf-8")) if raw else {}
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="session body must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="session body must be an object")
+    return parsed
+
+
+def _session_queue_snapshot(config, *, limit: int = 100) -> dict[str, Any]:
+    try:
+        store = SessionStore.from_config(config)
+        rows = store.list_queue(limit=limit if limit > 0 else 100000)
+        return {
+            "reachable": True,
+            "pending": len(rows),
+            "sessions": rows[:limit] if limit > 0 else [],
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"reachable": False, "sessions": [], "pending": 0, "reason": str(exc)}
+
+
+def _session_detail_payload(session: dict[str, Any]) -> dict[str, Any]:
+    status = str(session.get("status") or "queued")
+    turns = session.get("turns") if isinstance(session.get("turns"), list) else []
+    metrics = session.get("metrics") if isinstance(session.get("metrics"), dict) else {}
+    return {
+        "meta": {
+            "title": session.get("title") or "",
+            "user_alias": session.get("user_alias") or "",
+            "status": status,
+            "num_turns": len(turns) if turns else metrics.get("interaction_turns"),
+        },
+        "turns_available": bool(turns),
+        "turns_source": "archive",
+        "system_prompt": session.get("system_prompt") or "",
+        "injected_skills": session.get("injected_skills") or [],
+        "used_skills": session.get("used_skills") or [],
+        "metrics": metrics,
+        "turns": turns,
+        "value_judge": session.get("value_judge") if isinstance(session.get("value_judge"), dict) else {},
+    }
+
+
+def _history_from_archived_sessions(config, *, limit: int = 50, session_id: str = "") -> list[dict[str, Any]]:
+    try:
+        store = SessionStore.from_config(config)
+        rows = store.list_conversations(limit=100000)
+    except Exception:
+        return []
+    wanted = str(session_id or "").strip()
+    if wanted:
+        rows = [row for row in rows if str(row.get("session_id") or "") == wanted]
+    cycles: list[dict[str, Any]] = []
+    for row in rows[: max(0, int(limit))]:
+        status = str(row.get("status") or "")
+        judge = row.get("value_judge") if isinstance(row.get("value_judge"), dict) else {}
+        cycles.append(
+            {
+                "timestamp": row.get("ingested_at") or row.get("timestamp"),
+                "session_ids": [row.get("session_id")],
+                "sessions": 1,
+                "skill_groups": 0,
+                "uploaded_skills": 0,
+                "candidates_queued": 0,
+                "judge": {
+                    "overall_score": judge.get("confidence"),
+                    "rationale": judge.get("reason"),
+                    "decision": judge.get("decision"),
+                },
+                "evolutions": [],
+                "status": status,
+            }
+        )
+    return cycles
 
 
 def _storage_status(config) -> dict[str, Any]:
@@ -283,10 +399,6 @@ class RoutesMixin:
                     "temperature": temperature,
                 }
             )
-            prm = data.setdefault("prm", {})
-            prm.setdefault("provider", provider)
-            prm.setdefault("url", base_url)
-            prm.setdefault("model", model)
             store.save(data)
             owner.config = store.to_config()
             return JSONResponse(content=_model_settings_payload(owner.config, data))
@@ -347,6 +459,51 @@ class RoutesMixin:
                     detail = body_text[:1000]
                 raise HTTPException(status_code=400, detail=f"model test failed: {detail}") from exc
 
+        @app.post("/ingest_session")
+        async def ingest_session(request: Request):
+            _check_ingest_api_key(request)
+            body = await _read_limited_json_body(request)
+            session_id = _safe_session_id(body.get("session_id"))
+            session = dict(body)
+            session["session_id"] = session_id
+            session.setdefault("user_alias", str(getattr(owner.config, "sharing_user_alias", "") or "anonymous"))
+
+            classifier = SessionValueClassifier.from_config(owner.config)
+            value_judge = await classifier.classify(session)
+            session["value_judge"] = value_judge
+            session["ingested_at"] = _utc_now_iso()
+            try:
+                session_store = SessionStore.from_config(owner.config)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=503, detail="session storage is not configured") from exc
+
+            if value_judge.get("decision") != "valuable":
+                session_store.save_skipped(session)
+                logger.info(
+                    "[SessionFilter] skipped session=%s decision=%s reason=%s",
+                    session_id,
+                    value_judge.get("decision"),
+                    value_judge.get("reason"),
+                )
+                return {
+                    "status": "skipped",
+                    "session_id": session_id,
+                    "queued": False,
+                    "value_judge": value_judge,
+                }
+
+            key = session_store.save_queued(session)
+            trigger_scheduled = owner._schedule_evolve_trigger()
+            logger.info("[SessionFilter] queued valuable session=%s key=%s", session_id, key)
+            return {
+                "status": "queued",
+                "session_id": session_id,
+                "queued": True,
+                "key": key,
+                "trigger_scheduled": trigger_scheduled,
+                "value_judge": value_judge,
+            }
+
         @app.get("/healthz")
         async def healthz():
             return {"ok": True}
@@ -362,6 +519,7 @@ class RoutesMixin:
         @app.get("/status")
         async def dashboard_status():
             skills: dict[str, dict[str, Any]] = {}
+            session_queue = _session_queue_snapshot(owner.config, limit=0)
             try:
                 hub = SkillHub.team_from_config(owner.config)
                 for item in hub.list_remote():
@@ -381,18 +539,73 @@ class RoutesMixin:
                         skills[name] = {"skill_id": name, "version": 0}
             return {
                 "running": False,
-                "pending_sessions": 0,
+                "pending_sessions": int(session_queue.get("pending") or 0),
                 "registered_skills": len(skills),
                 "skills": skills,
             }
 
         @app.get("/sessions")
         async def dashboard_sessions():
-            return {"reachable": True, "sessions": []}
+            snapshot = _session_queue_snapshot(owner.config)
+            return {
+                "reachable": bool(snapshot.get("reachable")),
+                "sessions": snapshot.get("sessions", []),
+                "pending": int(snapshot.get("pending") or 0),
+                **({"reason": snapshot.get("reason")} if snapshot.get("reason") else {}),
+            }
 
         @app.get("/conversations")
         async def dashboard_conversations(limit: int = 100):
-            return {"reachable": True, "conversations": []}
+            try:
+                store = SessionStore.from_config(owner.config)
+                conversations = store.list_conversations(limit=max(1, int(limit or 100)))
+                return {"reachable": True, "conversations": conversations}
+            except Exception as exc:  # noqa: BLE001
+                return {"reachable": False, "conversations": [], "reason": str(exc)}
+
+        @app.get("/conversations/{session_id}")
+        async def dashboard_conversation_detail(session_id: str):
+            try:
+                store = SessionStore.from_config(owner.config)
+                session = store.load_session(_safe_session_id(session_id))
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            if not session:
+                raise HTTPException(status_code=404, detail="session not found")
+            return _session_detail_payload(session)
+
+        @app.get("/conversations/{session_id}/process")
+        async def dashboard_conversation_process(session_id: str):
+            cycles = _history_from_archived_sessions(
+                owner.config,
+                limit=50,
+                session_id=_safe_session_id(session_id),
+            )
+            return {"cycles": cycles}
+
+        @app.get("/history")
+        async def dashboard_history(limit: int = 50, session_id: str = ""):
+            return {
+                "cycles": _history_from_archived_sessions(
+                    owner.config,
+                    limit=max(1, int(limit or 50)),
+                    session_id=_safe_session_id(session_id) if session_id else "",
+                )
+            }
+
+        @app.get("/api/session-filter/audit")
+        async def api_session_filter_audit(limit: int = 100, decision: str = ""):
+            try:
+                store = SessionStore.from_config(owner.config)
+                return {
+                    "stats": store.filter_stats(),
+                    "items": store.list_filter_audit(
+                        limit=max(1, int(limit or 100)),
+                        decision=decision,
+                    ),
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {"stats": {"total": 0, "decisions": {}, "statuses": {}, "modes": {}}, "items": [], "reason": str(exc)}
 
         @app.get("/validation/candidates")
         async def validation_candidates():

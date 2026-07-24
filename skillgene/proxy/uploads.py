@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from typing import Optional
 
@@ -100,6 +101,29 @@ class UploadsMixin:
         """Deprecated no-op: snapshot uploads from proxy are disabled."""
         logger.info("[Proxy] session snapshot upload disabled; use /ingest_session (session=%s)", session_id)
         return
+
+    def _evolve_trigger_debounce_seconds(self) -> float:
+        raw = os.environ.get("SKILLGENE_EVOLVE_TRIGGER_DEBOUNCE_S", "15")
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            return 15.0
+
+    def _schedule_evolve_trigger(self) -> bool:
+        """Schedule one debounced evolve trigger. Returns True when scheduled."""
+        task = getattr(self, "_evolve_trigger_task", None)
+        if task is not None and not task.done():
+            logger.info("[SkillHub] evolve trigger already scheduled; coalescing request")
+            return False
+        delay = self._evolve_trigger_debounce_seconds()
+        self._evolve_trigger_task = self._safe_create_task(self._trigger_evolve_after_delay(delay))
+        logger.info("[SkillHub] evolve trigger scheduled in %.1fs", delay)
+        return True
+
+    async def _trigger_evolve_after_delay(self, delay: float) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        await self._trigger_evolve()
 
     async def _trigger_evolve(self) -> None:
         url = str(getattr(self.config, "evolve_server_url", "") or "").strip().rstrip("/")

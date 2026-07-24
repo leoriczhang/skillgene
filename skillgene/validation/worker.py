@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
 from ..llm import AsyncLLMClient
-from ..prm import PRMScorer
 from ..skills.render import build_skill_md
 from .store import ValidationStore
 
@@ -45,6 +44,7 @@ class ValidationWorker:
         config,
         *,
         idle_provider: Optional[IdleStateProvider] = None,
+        llm_client: Any = None,
     ) -> None:
         self.config = config
         self._idle_provider = idle_provider
@@ -52,23 +52,12 @@ class ValidationWorker:
         self._stop_event = asyncio.Event()
         self._jobs_completed_today = 0
         self._jobs_completed_date = datetime.now(timezone.utc).date().isoformat()
-        self._client = AsyncLLMClient(
+        self._client = llm_client or AsyncLLMClient(
             api_key=config.llm_api_key,
             base_url=config.llm_api_base,
             model=config.llm_model_id or config.model_name or "doubao-seed-evolving",
             max_tokens=4096,
             temperature=0.1,
-        )
-        prm_url = config.prm_url or config.llm_api_base
-        prm_model = config.prm_model or config.llm_model_id or config.model_name or "doubao-seed-evolving"
-        prm_api_key = config.prm_api_key or config.llm_api_key
-        self._prm_scorer = PRMScorer(
-            prm_url=prm_url,
-            prm_model=prm_model,
-            api_key=prm_api_key,
-            prm_m=max(1, int(getattr(config, "prm_m", 1) or 1)),
-            temperature=float(getattr(config, "prm_temperature", 0.1) or 0.1),
-            max_new_tokens=int(getattr(config, "prm_max_new_tokens", 512) or 512),
         )
         self._user_alias = str(config.sharing_user_alias or os.environ.get("USER", "anonymous"))
 
@@ -101,17 +90,37 @@ class ValidationWorker:
         )
 
     @staticmethod
-    def _normalize_replay_score(raw_score: Any) -> Optional[float]:
-        if not isinstance(raw_score, (int, float)) or isinstance(raw_score, bool):
-            return None
-        value = float(raw_score)
-        if value <= -1.0:
-            return 0.0
-        if value >= 1.0:
-            return 1.0
-        if value == 0.0:
-            return 0.5
-        return max(0.0, min(1.0, (value + 1.0) / 2.0))
+    def _score_replay_output(response_text: str) -> dict[str, Any]:
+        """Score the replay branch from the replay result itself."""
+        text = str(response_text or "").strip()
+        if not text:
+            return {
+                "score": 0.0,
+                "signal": "empty_response",
+                "reason": "replay produced no assistant response",
+            }
+        lowered = text.lower()
+        failure_markers = (
+            "i can't",
+            "i cannot",
+            "无法完成",
+            "不能完成",
+            "抱歉",
+            "sorry",
+            "error",
+            "failed",
+        )
+        if any(marker in lowered for marker in failure_markers):
+            return {
+                "score": 0.25,
+                "signal": "uncertain_or_incomplete",
+                "reason": "replay response contains failure or uncertainty markers",
+            }
+        return {
+            "score": 0.75,
+            "signal": "completed_response",
+            "reason": "replay produced a concrete assistant response",
+        }
 
     @staticmethod
     def _build_replay_skill_system(skill: Optional[dict[str, Any]]) -> str:
@@ -152,17 +161,15 @@ class ValidationWorker:
             max_tokens=2048,
             temperature=0.1,
         )
-        prm_result = await self._prm_scorer.evaluate(
-            response_text,
-            str(case.get("instruction", "") or ""),
-        )
-        normalized_score = self._normalize_replay_score(prm_result.get("score"))
+        replay_result = self._score_replay_output(response_text)
+        normalized_score = replay_result["score"]
         return {
             "label": label,
             "response_text": response_text,
-            "prm_score": prm_result.get("score"),
+            "replay_score": replay_result["score"],
+            "replay_signal": replay_result["signal"],
+            "replay_reason": replay_result["reason"],
             "normalized_score": normalized_score,
-            "prm_votes": prm_result.get("votes", []),
         }
 
     async def _replay_validate_job(self, job: dict[str, Any]) -> dict[str, Any]:
@@ -204,11 +211,13 @@ class ValidationWorker:
         candidate_mean = round(sum(candidate_scores) / len(candidate_scores), 3)
         baseline_mean = round(sum(baseline_scores) / len(baseline_scores), 3) if baseline_scores else 0.0
         threshold = round(float(job.get("min_score", 0.75)), 3)
-        accepted = candidate_mean >= threshold and candidate_mean >= baseline_mean
+        improved = candidate_mean > baseline_mean
+        accepted = candidate_mean >= threshold and improved
         decision = "accept" if accepted else "reject"
         reason = (
             f"Replay validation compared {len(case_results)} case(s): "
-            f"candidate_mean={candidate_mean}, baseline_mean={baseline_mean}, threshold={threshold}"
+            f"candidate_mean={candidate_mean}, baseline_mean={baseline_mean}, "
+            f"threshold={threshold}, improved={improved}"
         )
         return {
             "validator_mode": "replay",
@@ -232,6 +241,36 @@ class ValidationWorker:
         }
 
     async def _validate_job(self, job: dict[str, Any]) -> dict[str, Any]:
+        if str(getattr(self.config, "validation_mode", "replay") or "replay").strip().lower() == "true_replay":
+            job_id = str(job.get("job_id") or "")
+            if job_id:
+                try:
+                    from ..true_replay import evaluate_job
+
+                    replay = await asyncio.to_thread(evaluate_job, job_id, job=job)
+                    if replay.get("status") == "evaluated":
+                        return {
+                            "validator_mode": "true_replay",
+                            "decision": "accept" if replay.get("accepted") else "reject",
+                            "accepted": bool(replay.get("accepted")),
+                            "score": replay.get("score"),
+                            "threshold": replay.get("threshold"),
+                            "reason": (
+                                f"True Replay score={replay.get('score')}, "
+                                f"baseline={replay.get('baseline_mean')}, "
+                                f"delta={replay.get('delta')}, quality_ok={replay.get('quality_ok')}"
+                            ),
+                            "checks": {
+                                "grounded_in_evidence": replay.get("score"),
+                                "preserves_existing_value": 1.0 if replay.get("no_regression") else 0.0,
+                                "specificity_and_reusability": replay.get("score"),
+                                "safe_to_publish": replay.get("score") if replay.get("accepted") else 0.0,
+                            },
+                            "replay_summary": replay,
+                        }
+                    logger.info("[ValidationWorker] true replay skipped for %s: %s", job_id, replay.get("reason"))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[ValidationWorker] true replay failed for %s: %s", job_id, exc)
         return await self._replay_validate_job(job)
 
     async def run_once(self, *, force: bool = False) -> dict[str, Any]:
@@ -290,7 +329,7 @@ class ValidationWorker:
         logger.info(
             "[ValidationWorker] enabled=%s mode=%s interval=%ss idle_after=%ss",
             self.config.validation_enabled,
-            "replay",
+            self.config.validation_mode,
             interval,
             self.config.validation_idle_after_seconds,
         )
@@ -319,7 +358,7 @@ class ValidationWorker:
                 pass
         return {
             "enabled": bool(self.config.validation_enabled),
-            "mode": "replay",
+            "mode": str(self.config.validation_mode or "replay"),
             "sharing_enabled": bool(self.config.sharing_enabled),
             "customer_id": str(self.config.sharing_viking_customer_id or ""),
             "user_alias": self._user_alias,

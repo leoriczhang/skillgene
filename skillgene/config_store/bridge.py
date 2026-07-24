@@ -93,7 +93,6 @@ class ConfigStore:
         service = data.get("service", {})
         skills = data.get("skills", {})
         orouter = data.get("openrouter", {})
-        prm = data.get("prm", {})
 
         sharing = data.get("sharing", {})
         evolve = data.get("evolve", {})
@@ -103,11 +102,6 @@ class ConfigStore:
         sharing_local_root = _first_non_empty(sharing, "local_root")
         sharing_skill_backend = _first_non_empty(sharing, "skill_backend")
         sharing_session_backend = _first_non_empty(sharing, "session_backend")
-
-        prm_provider = prm.get("provider", "openai")
-        prm_url = str(prm.get("url", "") or llm_api_base)
-        prm_model = str(prm.get("model", "") or llm_model_id or "doubao-seed-evolving")
-        prm_api_key = str(prm.get("api_key", "") or llm_api_key)
 
         skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
 
@@ -135,12 +129,6 @@ class ConfigStore:
             skills_dir=skills_dir,
             skills_public_root=str(skills.get("public_root", "") or ""),
             max_context_tokens=int(data.get("max_context_tokens", 240000) or 240000),
-            # PRM
-            use_prm=bool(prm.get("enabled", True)),
-            prm_provider=prm_provider,
-            prm_url=prm_url,
-            prm_model=prm_model,
-            prm_api_key=prm_api_key,
             # Model
             model_name=llm.get("model_id") or "doubao-seed-evolving",
             # Sharing
@@ -207,7 +195,6 @@ class ConfigStore:
         data = self.load()
         llm = data.get("llm", {})
         skills = data.get("skills", {})
-        prm = data.get("prm", {})
         evolve = data.get("evolve", {})
         effective_skills_dir = resolve_skills_dir(skills.get("dir", str(_DEFAULT_SKILLS_DIR)))
         lines = [
@@ -226,7 +213,6 @@ class ConfigStore:
             f"service.port:    {data.get('service', {}).get('port', data.get('proxy', {}).get('port', 30000))}",
             f"skills.enabled:  {skills.get('enabled', True)}",
             f"skills.dir:      {effective_skills_dir}",
-            f"prm.enabled:     {prm.get('enabled', False)}",
         ]
         sharing = data.get("sharing", {})
         validation = data.get("validation", {})

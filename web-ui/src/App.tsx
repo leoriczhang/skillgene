@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { Activity, ClipboardCheck, History, LayoutDashboard, BookOpenText, Users, SlidersHorizontal, LogOut, RefreshCw } from "lucide-react";
+import { Activity, ClipboardCheck, Filter, History, LayoutDashboard, BookOpenText, Users, SlidersHorizontal, LogOut, RefreshCw } from "lucide-react";
 import { api, type AuthStatus, type UserProfile } from "@/api/client";
 import { toastErr, toastOk } from "@/lib/toast";
 import DashboardView from "@/views/DashboardView";
@@ -13,13 +13,15 @@ import ModelSettingsView from "@/views/ModelSettingsView";
 import CandidateReviewView from "@/views/CandidateReviewView";
 import HealthView from "@/views/HealthView";
 import AuditView from "@/views/AuditView";
+import SessionFilterView from "@/views/SessionFilterView";
 
-type ViewKey = "dashboard" | "candidates" | "audit" | "health" | "skills" | "users" | "model";
+type ViewKey = "dashboard" | "candidates" | "audit" | "filter" | "health" | "skills" | "users" | "model";
 
 const NAV: { key: ViewKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "dashboard", label: "进化看板", icon: LayoutDashboard },
   { key: "candidates", label: "候选评审", icon: ClipboardCheck },
   { key: "audit", label: "进化审计", icon: History },
+  { key: "filter", label: "过滤审计", icon: Filter },
   { key: "health", label: "系统健康", icon: Activity },
   { key: "skills", label: "技能管理", icon: BookOpenText },
   { key: "users", label: "用户管理", icon: Users },
@@ -132,6 +134,9 @@ export default function App() {
         </div>
         <div className={cn(view !== "audit" && "hidden")}>
           <AuditView active={view === "audit"} />
+        </div>
+        <div className={cn(view !== "filter" && "hidden")}>
+          <SessionFilterView active={view === "filter"} />
         </div>
         <div className={cn(view !== "health" && "hidden")}>
           <HealthView active={view === "health"} user={auth.user} />

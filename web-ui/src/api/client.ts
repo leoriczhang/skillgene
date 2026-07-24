@@ -211,6 +211,37 @@ export interface EvolveHistoryCycle {
   [key: string]: any;
 }
 
+export interface SessionFilterAuditItem {
+  session_id: string;
+  title?: string;
+  user_alias?: string;
+  status?: string;
+  num_turns?: number;
+  timestamp?: string;
+  ingested_at?: string;
+  recorded_at?: string;
+  tool_call_count?: number;
+  total_tokens?: number;
+  value_judge?: {
+    decision?: "valuable" | "chitchat" | string;
+    confidence?: number;
+    reason?: string;
+    mode?: string;
+    model?: string;
+  };
+}
+
+export interface SessionFilterAuditResp {
+  stats: {
+    total: number;
+    decisions?: Record<string, number>;
+    statuses?: Record<string, number>;
+    modes?: Record<string, number>;
+  };
+  items: SessionFilterAuditItem[];
+  reason?: string;
+}
+
 // ---- Evolve model settings ---------------------------------------------- //
 
 export interface EvolveModelSettings {

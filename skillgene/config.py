@@ -17,18 +17,6 @@ class SkillGeneConfig:
     model_name: str = "doubao-seed-evolving"
 
     # ------------------------------------------------------------------ #
-    # Reward / PRM                                                        #
-    # ------------------------------------------------------------------ #
-    use_prm: bool = True
-    prm_provider: str = "openai"
-    prm_url: str = "https://ark.cn-beijing.volces.com/api/v3"
-    prm_model: str = "doubao-seed-evolving"
-    prm_api_key: str = ""
-    prm_m: int = 3
-    prm_temperature: float = 0.6
-    prm_max_new_tokens: int = 1024
-
-    # ------------------------------------------------------------------ #
     # Skills                                                              #
     # ------------------------------------------------------------------ #
     use_skills: bool = False

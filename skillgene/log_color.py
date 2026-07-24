@@ -24,8 +24,6 @@ def _info_color_for_logger(logger_name: str) -> str:
         return ANSI_CYAN
     if "skillgene.skills" in name:
         return ANSI_MAGENTA
-    if "skillgene.prm" in name:
-        return ANSI_RED
     if "httpx" in name:
         return ANSI_CYAN
     return ANSI_BLUE

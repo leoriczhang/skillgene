@@ -1,9 +1,13 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.tsbuildinfo
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.npm-cache/
+.npm-logs/
+.verify-home/
 build/
 dist/
 !skillgene/web/dist/

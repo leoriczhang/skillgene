@@ -12,6 +12,7 @@ import {
   api,
   type EvolveModelSettings,
   type SkillListResp,
+  type SessionFilterAuditResp,
   type StatusResp,
   type StorageStatus,
   type UserProfile,
@@ -41,13 +42,14 @@ export default function HealthView({
   const [health, setHealth] = useState<{ status?: string } | null>(null);
   const [queueCount, setQueueCount] = useState<number | null>(null);
   const [candidateCount, setCandidateCount] = useState<number | null>(null);
+  const [filterStats, setFilterStats] = useState<SessionFilterAuditResp["stats"] | null>(null);
   const [loading, setLoading] = useState(false);
   const loaded = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [h, st, sto, mdl, us, sk, sess, cands] = await Promise.allSettled([
+      const [h, st, sto, mdl, us, sk, sess, cands, filter] = await Promise.allSettled([
         api<{ status?: string }>("/health"),
         api<StatusResp>("/status"),
         api<StorageStatus>("/storage/status"),
@@ -56,6 +58,7 @@ export default function HealthView({
         api<SkillListResp>("/api/skills"),
         api<{ sessions: any[] }>("/sessions"),
         api<{ candidates: any[] }>("/validation/candidates"),
+        api<SessionFilterAuditResp>("/api/session-filter/audit?limit=1"),
       ]);
       setHealth(h.status === "fulfilled" ? h.value : null);
       setStatus(st.status === "fulfilled" ? st.value : null);
@@ -65,6 +68,7 @@ export default function HealthView({
       setSkills(sk.status === "fulfilled" ? sk.value : null);
       setQueueCount(sess.status === "fulfilled" ? (sess.value.sessions || []).length : null);
       setCandidateCount(cands.status === "fulfilled" ? (cands.value.candidates || []).length : null);
+      setFilterStats(filter.status === "fulfilled" ? filter.value.stats : null);
     } catch (e: any) {
       toastErr("健康检查失败", e.message);
     } finally {
@@ -110,6 +114,13 @@ export default function HealthView({
       ok: !!skills,
       detail: skills ? `${skills.skills.length} 个团队技能 · ${skills.sharing_enabled ? "云同步开启" : "云同步关闭"}` : "无法读取技能列表",
     },
+    {
+      name: "过滤审计",
+      ok: !!filterStats,
+      detail: filterStats
+        ? `${filterStats.total} 条判别 · valuable ${filterStats.decisions?.valuable || 0} · chitchat ${filterStats.decisions?.chitchat || 0}`
+        : "无法读取过滤审计",
+    },
   ];
 
   const okCount = checks.filter((c) => c.ok).length;
@@ -135,6 +146,7 @@ export default function HealthView({
         <StatCard label="排队会话" value={queueCount ?? status?.pending_sessions ?? "—"} />
         <StatCard label="待评审候选" value={candidateCount ?? "—"} />
         <StatCard label="注册技能" value={status?.registered_skills ?? "—"} />
+        <StatCard label="过滤判别" value={filterStats?.total ?? "—"} />
       </div>
 
       <Panel title="健康检查" count={`${checks.length} 项`}>
