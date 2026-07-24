@@ -239,9 +239,14 @@ Install example:
 
 ```bash
 python skillgene/integrations/hermes_skill_sync/install.py \
-  --viking-team-api-key "<team-key>" \
-  --viking-root-prefix "skillgene"
+  --url "http://<skillgene-host>:52010" \
+  --user "<skillgene-user>"
 ```
+
+The default installer uses the SkillGene service backend. Local Hermes machines
+only need the SkillGene service URL and SkillGene user name; OpenViking endpoint,
+team key, root prefix, and related shared-storage settings stay on the cloud
+SkillGene service.
 
 The installer writes configuration similar to:
 
@@ -253,6 +258,17 @@ hooks:
   pre_llm_call:
     - command: "python3 <HERMES_HOME>/skills/skillgene-sync/sync_skills.py"
       timeout: 60
+```
+
+The generated `sync.json` is similar to:
+
+```json
+{
+  "backend": "service",
+  "base_url": "http://<skillgene-host>:52010",
+  "user_alias": "<skillgene-user>",
+  "target_dir": "<HERMES_HOME>/team_skills/skillgene"
+}
 ```
 
 If the agent is already running, execute `/reload-skills` to refresh the current session cache. New sessions pick up synced skills automatically.

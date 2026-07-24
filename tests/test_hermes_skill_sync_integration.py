@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import io
 from pathlib import Path
@@ -17,6 +18,8 @@ def test_install_wires_pre_llm_hook_external_dir_and_allowlist(tmp_path: Path) -
             str(hermes_home),
             "--python",
             "python3",
+            "--backend",
+            "viking",
             "--viking-endpoint",
             "https://openviking.example",
             "--viking-team-api-key",
@@ -55,6 +58,27 @@ def test_install_wires_pre_llm_hook_external_dir_and_allowlist(tmp_path: Path) -
     ]
 
 
+def test_install_defaults_to_service_backend_without_openviking_key(tmp_path: Path) -> None:
+    hermes_home = tmp_path / ".hermes"
+    rc = install.main(
+        [
+            "--hermes-home",
+            str(hermes_home),
+            "--url",
+            "http://skillgene.example",
+            "--user",
+            "alice",
+        ]
+    )
+    assert rc == 0
+
+    sync_cfg = json.loads((hermes_home / "skills" / "skillgene-sync" / "sync.json").read_text("utf-8"))
+    assert sync_cfg["backend"] == "service"
+    assert sync_cfg["base_url"] == "http://skillgene.example"
+    assert sync_cfg["user_alias"] == "alice"
+    assert "viking_team_api_key" not in sync_cfg
+
+
 def test_sync_hook_skips_without_sharing_config(tmp_path: Path, monkeypatch) -> None:
     cfg = tmp_path / "sync.json"
     cfg.write_text(json.dumps({"target_dir": str(tmp_path / "team")}), "utf-8")
@@ -63,6 +87,64 @@ def test_sync_hook_skips_without_sharing_config(tmp_path: Path, monkeypatch) -> 
 
     rc = sync_skills.main()
     assert rc == 0
+
+
+def test_sync_hook_pulls_from_skillgene_service_without_openviking_key(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "hermes" / "team_skills" / "skillgene"
+    cfg = tmp_path / "sync.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "target_dir": str(target),
+                "backend": "service",
+                "base_url": "http://skillgene.example",
+                "user_alias": "alice",
+                "mirror": True,
+                "min_interval_seconds": 0,
+            }
+        ),
+        "utf-8",
+    )
+    monkeypatch.setenv("SKILLGENE_SYNC_CONFIG", str(cfg))
+    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "skills": [
+                        {
+                            "name": "team-skill",
+                            "files": [
+                                {
+                                    "path": "SKILL.md",
+                                    "content_b64": base64.b64encode(
+                                        b"---\nname: team-skill\ndescription: demo\n---\n\n# Demo\n"
+                                    ).decode("ascii"),
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout=0):
+        assert request.full_url == "http://skillgene.example/sync/skills?user=alice"
+        assert timeout == 30
+        return FakeResponse()
+
+    monkeypatch.setattr(sync_skills.urllib.request, "urlopen", fake_urlopen)
+
+    rc = sync_skills.main()
+    assert rc == 0
+    assert (target / "team-skill" / "SKILL.md").is_file()
 
 
 def test_sync_hook_pulls_local_backend_from_config(tmp_path: Path, monkeypatch) -> None:

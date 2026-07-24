@@ -239,9 +239,13 @@ sequenceDiagram
 
 ```bash
 python skillgene/integrations/hermes_skill_sync/install.py \
-  --viking-team-api-key "<team-key>" \
-  --viking-root-prefix "skillgene"
+  --url "http://<skillgene-host>:52010" \
+  --user "<skillgene-user>"
 ```
+
+默认安装走 SkillGene 服务后端。本地 Hermes 只需要知道 SkillGene 服务地址和
+SkillGene 用户名；OpenViking endpoint、团队 key、root prefix 等共享存储配置
+只保存在云端 SkillGene 服务里，避免每台机器重复配置或配错。
 
 安装脚本会写入类似配置：
 
@@ -253,6 +257,17 @@ hooks:
   pre_llm_call:
     - command: "python3 <HERMES_HOME>/skills/skillgene-sync/sync_skills.py"
       timeout: 60
+```
+
+对应的 `sync.json` 类似：
+
+```json
+{
+  "backend": "service",
+  "base_url": "http://<skillgene-host>:52010",
+  "user_alias": "<skillgene-user>",
+  "target_dir": "<HERMES_HOME>/team_skills/skillgene"
+}
 ```
 
 如果 Agent 已经在运行，执行 `/reload-skills` 刷新当前会话缓存；新会话会自动读取同步后的技能。

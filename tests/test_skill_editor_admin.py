@@ -537,6 +537,45 @@ def test_routes_full_crud_cycle_without_sharing(tmp_path: Path) -> None:
     assert "imported" in names
 
 
+def test_sync_skills_endpoint_uses_shared_store_when_configured(tmp_path: Path) -> None:
+    server = _make_server(tmp_path, sharing=True)
+    client = _authed_client(server)
+
+    cloud_source = tmp_path / "cloud-source"
+    _seed_skill(cloud_source, "cloud-team-skill")
+    hub = SkillHub(
+        backend="local",
+        endpoint="",
+        local_root=str(tmp_path / "bucket"),
+        customer_id="",
+        user_alias="tester",
+    )
+    hub.push_skills(str(cloud_source))
+
+    resp = client.get("/sync/skills")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["source"] == "shared"
+    assert [skill["name"] for skill in body["skills"]] == ["cloud-team-skill"]
+    assert body["skills"][0]["files"][0]["path"] == "SKILL.md"
+    assert "seed-skill" not in {skill["name"] for skill in body["skills"]}
+
+
+def test_sync_skills_endpoint_falls_back_to_local_without_sharing(tmp_path: Path) -> None:
+    server = _make_server(tmp_path, sharing=False)
+    client = _authed_client(server)
+
+    resp = client.get("/sync/skills")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["source"] == "local"
+    assert [skill["name"] for skill in body["skills"]] == ["seed-skill"]
+
+
 def test_routes_error_handling(tmp_path: Path) -> None:
     server = _make_server(tmp_path)
     client = _authed_client(server)

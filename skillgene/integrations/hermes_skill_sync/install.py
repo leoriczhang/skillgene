@@ -179,18 +179,26 @@ def _write_sync_config(path: Path, args, target_dir: Path) -> None:
     }
     optional_fields = {
         "backend": args.backend,
-        "viking_endpoint": args.viking_endpoint,
-        "viking_team_api_key": args.viking_team_api_key,
-        "viking_api_key": args.viking_api_key,
-        "viking_account": args.viking_account,
-        "viking_user": args.viking_user,
-        "viking_agent": args.viking_agent,
-        "viking_agent_id": args.viking_agent_id,
-        "viking_customer_id": args.viking_customer_id,
-        "viking_root_prefix": args.viking_root_prefix,
-        "viking_group_id": args.viking_group_id,
+        "base_url": args.url or args.service_url,
+        "user_alias": args.user,
+        "api_key": args.api_key,
         "local_root": args.local_root,
     }
+    if args.backend == "viking":
+        optional_fields.update(
+            {
+                "viking_endpoint": args.viking_endpoint,
+                "viking_team_api_key": args.viking_team_api_key,
+                "viking_api_key": args.viking_api_key,
+                "viking_account": args.viking_account,
+                "viking_user": args.viking_user,
+                "viking_agent": args.viking_agent,
+                "viking_agent_id": args.viking_agent_id,
+                "viking_customer_id": args.viking_customer_id,
+                "viking_root_prefix": args.viking_root_prefix,
+                "viking_group_id": args.viking_group_id,
+            }
+        )
     for key, value in optional_fields.items():
         if value not in (None, ""):
             payload[key] = value
@@ -207,7 +215,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mirror", action="store_true", help="delete local team skills absent from remote manifest")
     parser.add_argument("--no-hook", action="store_true", help="install files and config only, skip hook wiring")
     parser.add_argument("--no-approve", action="store_true", help="skip scoped allowlist approval")
-    parser.add_argument("--backend", default="viking", choices=["viking", "local"], help="team skill backend")
+    parser.add_argument(
+        "--backend",
+        default="service",
+        choices=["service", "viking", "local"],
+        help="team skill backend (default: SkillGene service; no local OpenViking key needed)",
+    )
+    parser.add_argument("--url", default="", help="SkillGene service URL for --backend service")
+    parser.add_argument("--service-url", default="", help="alias of --url")
+    parser.add_argument("--user", default="", help="SkillGene user alias for service sync attribution")
+    parser.add_argument("--api-key", default="", help="optional SkillGene service sync API key")
     parser.add_argument(
         "--viking-endpoint",
         default=VOLCENGINE_OPENVIKING_ENDPOINT,

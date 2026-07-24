@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,75 @@ class SkillsAdminMixin:
             logger.warning("[SkillsAdmin] cloud delete failed for %s: %s", name, e)
             return {"synced": False, "reason": str(e)}
 
+    def _sync_bundle_payload(self) -> dict[str, Any]:
+        """Return a read-only team skill snapshot for lightweight agents.
+
+        This endpoint lets Hermes machines sync from SkillGene itself instead
+        of duplicating OpenViking credentials and root-prefix knowledge locally.
+        The service remains the only place that needs object-storage config.
+        """
+        if getattr(self.config, "sharing_enabled", False):
+            try:
+                from ..skills.hub import SkillHub
+
+                hub = SkillHub.team_from_config(self.config)
+                bundles: list[dict[str, Any]] = []
+                for record in hub.list_remote():
+                    name = str(record.get("name") or "")
+                    if not name:
+                        continue
+                    bundle = hub._download_skill_bundle(name, record)
+                    files = [
+                        {
+                            "path": rel_path,
+                            "content_b64": base64.b64encode(content).decode("ascii"),
+                        }
+                        for rel_path, content in sorted(bundle.items())
+                    ]
+                    bundles.append({**record, "files": files})
+                return {
+                    "status": "ok",
+                    "source": "shared",
+                    "skills": bundles,
+                    "total": len(bundles),
+                }
+            except Exception as e:  # noqa: BLE001 - sync endpoint should explain failure
+                logger.warning("[SkillsAdmin] shared sync snapshot failed: %s", e)
+                return {
+                    "status": "error",
+                    "source": "shared",
+                    "error": str(e),
+                    "skills": [],
+                    "total": 0,
+                }
+
+        skills_dir = self._skills_dir()
+        bundles: list[dict[str, Any]] = []
+        for summary in editor.list_skills(skills_dir):
+            name = str(summary.get("name") or "")
+            if not name:
+                continue
+            detail = editor.get_skill(skills_dir, name)
+            skill_dir = editor.find_skill_dir(skills_dir, name)
+            files: list[dict[str, Any]] = []
+            for rel_path in detail.get("files") or []:
+                rel = str(rel_path or "").strip().replace("\\", "/")
+                if not rel or rel.startswith("../") or rel.startswith("/"):
+                    continue
+                file_path = os.path.join(skill_dir or "", rel)
+                if not os.path.isfile(file_path):
+                    continue
+                with open(file_path, "rb") as handle:
+                    content = handle.read()
+                files.append(
+                    {
+                        "path": rel,
+                        "content_b64": base64.b64encode(content).decode("ascii"),
+                    }
+                )
+            bundles.append({**summary, "files": files})
+        return {"status": "ok", "source": "local", "skills": bundles, "total": len(bundles)}
+
     # ------------------------------------------------------------------ #
     # Route registration                                                 #
     # ------------------------------------------------------------------ #
@@ -124,6 +194,10 @@ class SkillsAdminMixin:
                 return JSONResponse(content=editor.get_skill(owner._skills_dir(), name))
             except SkillEditorError as e:
                 raise HTTPException(status_code=404, detail=str(e)) from e
+
+        @app.get("/sync/skills")
+        async def sync_skills_snapshot():
+            return JSONResponse(content=owner._sync_bundle_payload())
 
         @app.post("/api/skills")
         async def api_create_or_update_skill(body: dict[str, Any], request: Request):
