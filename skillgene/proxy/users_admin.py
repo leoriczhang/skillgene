@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from ..config import VOLCENGINE_OPENVIKING_ENDPOINT
@@ -30,6 +30,28 @@ _ROLES = {"user", "admin"}
 _SPACES = {"personal", "team"}
 _DIRECTIONS = {"personal_to_team", "team_to_personal"}
 _PASSWORD_ITERATIONS = 260_000
+
+
+def _request_user(request: Request) -> dict[str, Any]:
+    user = getattr(request.state, "console_user", None)
+    return user if isinstance(user, dict) else {}
+
+
+def _is_admin_request(request: Request) -> bool:
+    return str(_request_user(request).get("role") or "user") == "admin"
+
+
+def _require_admin_request(request: Request) -> None:
+    if not _is_admin_request(request):
+        raise HTTPException(status_code=403, detail="only admin users can perform this operation")
+
+
+def _require_self_or_admin(request: Request, user_id: str) -> None:
+    current = _request_user(request)
+    if str(current.get("role") or "user") == "admin":
+        return
+    if str(current.get("id") or "") != str(user_id or ""):
+        raise HTTPException(status_code=403, detail="users can only access their own resources")
 
 
 def _space_key(space: dict[str, Any]) -> str:
@@ -333,18 +355,24 @@ class UsersAdminMixin:
         owner = self
 
         @app.get("/api/users")
-        async def api_list_users():
+        async def api_list_users(request: Request):
             data = _load_registry(_registry_path(owner.config))
-            return JSONResponse(content={"users": [_public_user(u) for u in data.get("users") or []]})
+            users = data.get("users") or []
+            if not _is_admin_request(request):
+                current_id = str(_request_user(request).get("id") or "")
+                users = [user for user in users if str(user.get("id") or "") == current_id]
+            return JSONResponse(content={"users": [_public_user(u) for u in users]})
 
         @app.get("/api/users/{user_id}")
-        async def api_get_user(user_id: str):
+        async def api_get_user(user_id: str, request: Request):
+            _require_self_or_admin(request, user_id)
             data = _load_registry(_registry_path(owner.config))
             _idx, user = _find_user(data, user_id)
             return JSONResponse(content=_public_user(user))
 
         @app.get("/api/users/{user_id}/spaces/{space}/secret")
-        async def api_get_user_space_secret(user_id: str, space: str):
+        async def api_get_user_space_secret(user_id: str, space: str, request: Request):
+            _require_self_or_admin(request, user_id)
             if space not in _SPACES:
                 raise HTTPException(status_code=400, detail=f"unsupported skill space: {space}")
             data = _load_registry(_registry_path(owner.config))
@@ -353,7 +381,8 @@ class UsersAdminMixin:
             return JSONResponse(content=_public_space_secret(user.get(key) or {}))
 
         @app.post("/api/users")
-        async def api_upsert_user(body: dict[str, Any]):
+        async def api_upsert_user(body: dict[str, Any], request: Request):
+            _require_admin_request(request)
             path = _registry_path(owner.config)
             data = _load_registry(path)
             user = _upsert_user(data, body)
@@ -362,7 +391,8 @@ class UsersAdminMixin:
             return JSONResponse(content=_public_user(user))
 
         @app.delete("/api/users/{user_id}")
-        async def api_delete_user(user_id: str):
+        async def api_delete_user(user_id: str, request: Request):
+            _require_admin_request(request)
             path = _registry_path(owner.config)
             data = _load_registry(path)
             idx, user = _find_user(data, user_id)
@@ -373,15 +403,18 @@ class UsersAdminMixin:
         @app.get("/api/users/{user_id}/skills")
         async def api_list_user_space_skills(
             user_id: str,
+            request: Request,
             space: str = Query(default="personal"),
         ):
+            _require_self_or_admin(request, user_id)
             data = _load_registry(_registry_path(owner.config))
             _idx, user = _find_user(data, user_id)
             hub = _hub_from_user(owner.config, user, space=space)
             return JSONResponse(content={"space": space, "skills": hub.list_remote()})
 
         @app.post("/api/users/{user_id}/share")
-        async def api_share_skills(user_id: str, body: dict[str, Any] | None = None):
+        async def api_share_skills(user_id: str, request: Request, body: dict[str, Any] | None = None):
+            _require_self_or_admin(request, user_id)
             payload = body if isinstance(body, dict) else {}
             direction = str(payload.get("direction") or "personal_to_team")
             if direction not in _DIRECTIONS:

@@ -262,8 +262,10 @@ class RoutesMixin:
             if path.startswith("/api/") and not path.startswith("/api/auth/"):
                 if _users_empty():
                     return JSONResponse(status_code=401, content={"detail": "setup required", "needs_setup": True})
-                if _session_user(request) is None:
+                user = _session_user(request)
+                if user is None:
                     return JSONResponse(status_code=401, content={"detail": "login required"})
+                request.state.console_user = user
             return await call_next(request)
 
         # Skill and user management REST APIs used by the unified console.
@@ -331,6 +333,40 @@ class RoutesMixin:
                 raise HTTPException(status_code=401, detail="invalid username or password") from exc
             if not user.get("password_hash") or not _verify_password(password, str(user.get("password_hash") or "")):
                 raise HTTPException(status_code=401, detail="invalid username or password")
+            token = secrets.token_urlsafe(32)
+            owner._console_sessions[token] = {
+                "user_id": user.get("id"),
+                "created_at": time.time(),
+                "expires_at": time.time() + _SESSION_TTL_SECONDS,
+            }
+            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user)})
+            resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=_SESSION_TTL_SECONDS, path="/")
+            return resp
+
+        @app.post("/api/auth/register")
+        async def auth_register(request: Request):
+            if _users_empty():
+                raise HTTPException(status_code=409, detail="setup required; initialize the admin account first")
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise HTTPException(status_code=400, detail="register body must be an object")
+            username = str(body.get("username") or body.get("id") or "").strip()
+            password = str(body.get("password") or "")
+            if not username or not password:
+                raise HTTPException(status_code=400, detail="username and password are required")
+            path = _registry_path(owner.config)
+            data = _load_registry(path)
+            if any(str(user.get("id") or "") == username for user in data.get("users") or []):
+                raise HTTPException(status_code=409, detail="user already exists")
+            payload = {
+                "id": username,
+                "display_name": body.get("display_name") or username,
+                "email": body.get("email") or "",
+                "role": "user",
+                "password": password,
+            }
+            user = _upsert_user(data, payload)
+            _save_registry(path, data)
             token = secrets.token_urlsafe(32)
             owner._console_sessions[token] = {
                 "user_id": user.get("id"),

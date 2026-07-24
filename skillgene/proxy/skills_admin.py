@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..skills import editor
@@ -36,6 +36,12 @@ def _decode_b64(value: str, *, field: str) -> bytes:
         return base64.b64decode(str(value or ""), validate=True)
     except (binascii.Error, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"invalid base64 in {field}: {e}") from e
+
+
+def _require_admin_request(request: Request) -> None:
+    user = getattr(request.state, "console_user", None)
+    if not isinstance(user, dict) or str(user.get("role") or "user") != "admin":
+        raise HTTPException(status_code=403, detail="only admin users can perform this operation")
 
 
 class SkillsAdminMixin:
@@ -120,12 +126,13 @@ class SkillsAdminMixin:
                 raise HTTPException(status_code=404, detail=str(e)) from e
 
         @app.post("/api/skills")
-        async def api_create_or_update_skill(body: dict[str, Any]):
+        async def api_create_or_update_skill(body: dict[str, Any], request: Request):
             """Create or overwrite a skill's SKILL.md from structured fields.
 
             Body: ``{name, description, category, body, skill_md?}``. When
             ``skill_md`` is present it is written verbatim (raw edit mode).
             """
+            _require_admin_request(request)
             try:
                 result = editor.save_skill(
                     owner._skills_dir(),
@@ -142,7 +149,8 @@ class SkillsAdminMixin:
             return JSONResponse(content={**result, "loaded_skills": loaded, "cloud": sync})
 
         @app.delete("/api/skills/{name}")
-        async def api_delete_skill(name: str):
+        async def api_delete_skill(name: str, request: Request):
+            _require_admin_request(request)
             try:
                 result = editor.delete_skill(owner._skills_dir(), name)
             except SkillEditorError as e:
@@ -152,11 +160,12 @@ class SkillsAdminMixin:
             return JSONResponse(content={**result, "loaded_skills": loaded, "cloud": sync})
 
         @app.post("/api/skills/{name}/files")
-        async def api_add_files(name: str, body: dict[str, Any]):
+        async def api_add_files(name: str, body: dict[str, Any], request: Request):
             """Add/replace bundle files under a skill.
 
             Body: ``{files: [{path, content_b64}, ...]}``.
             """
+            _require_admin_request(request)
             entries = body.get("files")
             if not isinstance(entries, list) or not entries:
                 raise HTTPException(status_code=400, detail="files must be a non-empty list")
@@ -177,7 +186,8 @@ class SkillsAdminMixin:
             return JSONResponse(content={**result, "loaded_skills": loaded, "cloud": sync})
 
         @app.delete("/api/skills/{name}/files/{rel_path:path}")
-        async def api_delete_file(name: str, rel_path: str):
+        async def api_delete_file(name: str, rel_path: str, request: Request):
+            _require_admin_request(request)
             try:
                 result = editor.delete_bundle_file(owner._skills_dir(), name, rel_path)
             except SkillEditorError as e:
@@ -187,11 +197,12 @@ class SkillsAdminMixin:
             return JSONResponse(content={**result, "loaded_skills": loaded, "cloud": sync})
 
         @app.post("/api/skills/import-zip")
-        async def api_import_zip(body: dict[str, Any]):
+        async def api_import_zip(body: dict[str, Any], request: Request):
             """Import a zipped skill package.
 
             Body: ``{zip_b64, name?}``.
             """
+            _require_admin_request(request)
             zip_bytes = _decode_b64(body.get("zip_b64", ""), field="zip_b64")
             if not zip_bytes:
                 raise HTTPException(status_code=400, detail="zip_b64 must not be empty")

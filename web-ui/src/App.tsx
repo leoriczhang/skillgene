@@ -164,28 +164,37 @@ function LoginGate({
   needsSetup: boolean;
   onAuthed: (status: AuthStatus) => void;
 }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState(needsSetup ? "admin" : "");
   const [displayName, setDisplayName] = useState(needsSetup ? "admin" : "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState(needsSetup ? "admin" : "");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const isRegister = !needsSetup && mode === "register";
 
   async function submit() {
+    if (isRegister && password !== confirmPassword) {
+      toastErr("注册失败", "两次输入的密码不一致");
+      return;
+    }
     setLoading(true);
     try {
-      const path = needsSetup ? "/api/auth/bootstrap" : "/api/auth/login";
+      const path = needsSetup ? "/api/auth/bootstrap" : isRegister ? "/api/auth/register" : "/api/auth/login";
       const payload = needsSetup
         ? { username, display_name: displayName || username, email, password }
-        : { username, password };
+        : isRegister
+          ? { username, display_name: displayName || username, email, password }
+          : { username, password };
       const status = await api<AuthStatus>(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       onAuthed(status);
-      toastOk(needsSetup ? "管理员已初始化" : "登录成功", status.user?.display_name || status.user?.id || "");
+      toastOk(needsSetup ? "管理员已初始化" : isRegister ? "注册成功" : "登录成功", status.user?.display_name || status.user?.id || "");
     } catch (e: any) {
-      toastErr(needsSetup ? "初始化失败" : "登录失败", e.message);
+      toastErr(needsSetup ? "初始化失败" : isRegister ? "注册失败" : "登录失败", e.message);
     } finally {
       setLoading(false);
     }
@@ -199,20 +208,46 @@ function LoginGate({
             SG
           </div>
           <h1 className="text-[22px] font-bold tracking-tight">
-            {needsSetup ? "初始化管理员账号" : "登录 SkillGene 控制台"}
+            {needsSetup ? "初始化管理员账号" : isRegister ? "注册 SkillGene 账号" : "登录 SkillGene 控制台"}
           </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
             {needsSetup
               ? "当前还没有用户。默认管理员账号和密码均为 admin，可直接创建后登录。"
-              : "请输入账号密码后继续访问团队技能进化控制台。"}
+              : isRegister
+                ? "注册后将创建普通用户账号，管理员权限需由管理员在用户管理中分配。"
+                : "请输入账号密码后继续访问团队技能进化控制台。"}
           </p>
         </div>
 
         <div className="space-y-3.5">
+          {!needsSetup && (
+            <div className="grid grid-cols-2 rounded-lg border border-border bg-background p-1 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className={cn(
+                  "rounded-md px-3 py-2 transition-colors",
+                  !isRegister ? "bg-sidebar-primary text-white" : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                账号登录
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("register")}
+                className={cn(
+                  "rounded-md px-3 py-2 transition-colors",
+                  isRegister ? "bg-sidebar-primary text-white" : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                新用户注册
+              </button>
+            </div>
+          )}
           <Field label="账号">
             <Input value={username} placeholder="admin" onChange={(e) => setUsername(e.target.value)} />
           </Field>
-          {needsSetup && (
+          {(needsSetup || isRegister) && (
             <div className="grid gap-3.5 sm:grid-cols-2">
               <Field label="显示名">
                 <Input value={displayName} placeholder="管理员" onChange={(e) => setDisplayName(e.target.value)} />
@@ -233,8 +268,21 @@ function LoginGate({
               }}
             />
           </Field>
+          {isRegister && (
+            <Field label="确认密码">
+              <Input
+                type="password"
+                value={confirmPassword}
+                placeholder="请再次输入密码"
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                }}
+              />
+            </Field>
+          )}
           <Button className="w-full" disabled={loading} onClick={submit}>
-            {needsSetup ? "创建管理员并登录" : "登录"}
+            {needsSetup ? "创建管理员并登录" : isRegister ? "注册并登录" : "登录"}
           </Button>
         </div>
       </div>

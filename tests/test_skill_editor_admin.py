@@ -271,6 +271,55 @@ def _authed_client(server: ProxyServer) -> TestClient:
     return client
 
 
+def test_public_registration_creates_regular_user_and_logs_in(tmp_path: Path) -> None:
+    server = _make_server(tmp_path)
+    client = _authed_client(server)
+
+    resp = client.post(
+        "/api/auth/register",
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+            "email": "alice@example.com",
+            "role": "admin",
+            "password": "pw",
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["authenticated"] is True
+    assert body["user"]["id"] == "alice"
+    assert body["user"]["role"] == "user"
+
+    status = client.get("/api/auth/status")
+    assert status.status_code == 200
+    assert status.json()["user"]["id"] == "alice"
+
+    users = client.get("/api/users")
+    assert users.status_code == 200
+    assert [user["id"] for user in users.json()["users"]] == ["alice"]
+
+    upsert = client.post("/api/users", json={"id": "bob", "password": "pw"})
+    assert upsert.status_code == 403
+
+    write_skill = client.post(
+        "/api/skills",
+        json={
+            "name": "blocked",
+            "description": "should not write",
+            "body": "blocked",
+        },
+    )
+    assert write_skill.status_code == 403
+
+    duplicate = client.post(
+        "/api/auth/register",
+        json={"username": "alice", "password": "pw2"},
+    )
+    assert duplicate.status_code == 409
+
+
 def test_user_routes_register_hide_keys_and_share_local_spaces(tmp_path: Path) -> None:
     server = _make_server(tmp_path)
     client = _authed_client(server)
