@@ -168,24 +168,64 @@ def _public_space(space: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _public_space_secret(space: dict[str, Any]) -> dict[str, Any]:
+def _effective_team_key(config, data: dict[str, Any] | None = None) -> str:
+    """Return the inherited team OpenViking key.
+
+    The team space is a shared asset. Regular users should default to the
+    administrator's team OpenViking key, but the key must not be copied into
+    every user profile or exposed through the normal secret endpoint.
+    """
+    registry = data if isinstance(data, dict) else _load_registry(_registry_path(config))
+    users = registry.get("users") or []
+    admins = sorted(
+        [user for user in users if str(user.get("role") or "user") == "admin"],
+        key=lambda item: 0 if str(item.get("id") or "") == "admin" else 1,
+    )
+    for user in admins:
+        key = _space_key(user.get("team_space") or {})
+        if key:
+            return key
+    return (
+        str(getattr(config, "sharing_viking_team_api_key", "") or "")
+        or str(getattr(config, "sharing_viking_api_key", "") or "")
+    )
+
+
+def _effective_public_space(config, user: dict[str, Any], *, space: str) -> dict[str, Any]:
+    raw = user.get("team_space") if space == "team" else user.get("personal_space")
+    public = _public_space(raw or {})
+    if space == "team" and not public["api_key_present"] and _effective_team_key(config):
+        public["backend"] = "viking"
+        public["api_key_present"] = True
+        public["inherited_from_admin"] = True
+    return public
+
+
+def _public_space_secret(space: dict[str, Any], *, inherited: bool = False) -> dict[str, Any]:
     key = str(space.get("viking_api_key") or "")
     return {
-        "backend": str(space.get("backend") or "local"),
-        "api_key_present": bool(key),
-        "viking_api_key": key,
+        "backend": "viking" if inherited else str(space.get("backend") or "local"),
+        "api_key_present": bool(key) or inherited,
+        "viking_api_key": "" if inherited else key,
+        "inherited_from_admin": bool(inherited),
     }
 
 
-def _public_user(user: dict[str, Any]) -> dict[str, Any]:
+def _public_user(user: dict[str, Any], config=None) -> dict[str, Any]:
+    if config is None:
+        personal_space = _public_space(user.get("personal_space") or {})
+        team_space = _public_space(user.get("team_space") or {})
+    else:
+        personal_space = _effective_public_space(config, user, space="personal")
+        team_space = _effective_public_space(config, user, space="team")
     return {
         "id": user.get("id", ""),
         "display_name": user.get("display_name", ""),
         "email": user.get("email", ""),
         "role": user.get("role", "user"),
         "password_set": bool(user.get("password_hash")),
-        "personal_space": _public_space(user.get("personal_space") or {}),
-        "team_space": _public_space(user.get("team_space") or {}),
+        "personal_space": personal_space,
+        "team_space": team_space,
         "created_at": user.get("created_at", ""),
         "updated_at": user.get("updated_at", ""),
     }
@@ -236,11 +276,13 @@ def _hub_from_user(config, user: dict[str, Any], *, space: str) -> SkillHub:
         raise HTTPException(status_code=400, detail=f"unsupported skill space: {space}")
     is_team = space == "team"
     space_cfg = (user.get("team_space") if is_team else user.get("personal_space")) or {}
-    backend = str(space_cfg.get("backend") or "local")
+    inherited_team_key = _effective_team_key(config) if is_team else ""
+    effective_key = _space_key(space_cfg) or (inherited_team_key if is_team else "")
+    backend = "viking" if effective_key else str(space_cfg.get("backend") or "local")
     user_id = str(user.get("id") or "")
     if backend == "viking":
         fallback_key = (
-            str(getattr(config, "sharing_viking_team_api_key", "") or "")
+            inherited_team_key
             if is_team
             else str(getattr(config, "sharing_viking_personal_api_key", "") or "")
         ) or str(getattr(config, "sharing_viking_api_key", "") or "")
@@ -251,7 +293,7 @@ def _hub_from_user(config, user: dict[str, Any], *, space: str) -> SkillHub:
             customer_id="" if is_team else user_id,
             user_alias=str(user.get("display_name") or user_id or "anonymous"),
             viking_endpoint=str(getattr(config, "sharing_viking_endpoint", "") or _DEFAULT_OPENVIKING_ENDPOINT),
-            viking_api_key=_space_key(space_cfg) or fallback_key,
+            viking_api_key=effective_key or fallback_key,
             viking_account=str(getattr(config, "sharing_viking_account", "") or _DEFAULT_ACCOUNT),
             viking_user=str(getattr(config, "sharing_viking_user", "") or _DEFAULT_USER),
             viking_agent=str(getattr(config, "sharing_viking_agent", "") or _DEFAULT_AGENT),
@@ -314,6 +356,9 @@ def _sync_user_space_keys_to_config(config, user: dict[str, Any]) -> Any:
     operations, so keep the runtime config in sync whenever a user is saved.
     """
     config_file = str(getattr(config, "_config_file", "") or "").strip()
+    if str(user.get("role") or "user") != "admin":
+        return config
+
     personal_key = _space_key(user.get("personal_space") or {})
     team_key = _space_key(user.get("team_space") or {})
     if not config_file:
@@ -361,14 +406,14 @@ class UsersAdminMixin:
             if not _is_admin_request(request):
                 current_id = str(_request_user(request).get("id") or "")
                 users = [user for user in users if str(user.get("id") or "") == current_id]
-            return JSONResponse(content={"users": [_public_user(u) for u in users]})
+            return JSONResponse(content={"users": [_public_user(u, owner.config) for u in users]})
 
         @app.get("/api/users/{user_id}")
         async def api_get_user(user_id: str, request: Request):
             _require_self_or_admin(request, user_id)
             data = _load_registry(_registry_path(owner.config))
             _idx, user = _find_user(data, user_id)
-            return JSONResponse(content=_public_user(user))
+            return JSONResponse(content=_public_user(user, owner.config))
 
         @app.get("/api/users/{user_id}/spaces/{space}/secret")
         async def api_get_user_space_secret(user_id: str, space: str, request: Request):
@@ -378,7 +423,12 @@ class UsersAdminMixin:
             data = _load_registry(_registry_path(owner.config))
             _idx, user = _find_user(data, user_id)
             key = "team_space" if space == "team" else "personal_space"
-            return JSONResponse(content=_public_space_secret(user.get(key) or {}))
+            inherited = (
+                space == "team"
+                and not _space_key(user.get("team_space") or {})
+                and bool(_effective_team_key(owner.config, data))
+            )
+            return JSONResponse(content=_public_space_secret(user.get(key) or {}, inherited=inherited))
 
         @app.post("/api/users")
         async def api_upsert_user(body: dict[str, Any], request: Request):
@@ -388,7 +438,7 @@ class UsersAdminMixin:
             user = _upsert_user(data, body)
             _save_registry(path, data)
             owner.config = _sync_user_space_keys_to_config(owner.config, user)
-            return JSONResponse(content=_public_user(user))
+            return JSONResponse(content=_public_user(user, owner.config))
 
         @app.delete("/api/users/{user_id}")
         async def api_delete_user(user_id: str, request: Request):

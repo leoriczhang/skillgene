@@ -257,7 +257,7 @@ export default function UsersView({ active }: { active: boolean }) {
             </div>
 
             <div className="rounded-lg border border-border bg-background/60 p-3 text-xs leading-relaxed text-muted-foreground">
-              不填写 key 时使用系统内置本地空间；填写 key 后使用系统固定的 OpenViking resources 空间。endpoint、account、root prefix 等不开放前端配置。
+              不填写 key 时使用系统默认空间；普通用户的团队 skill 空间默认继承管理员的团队 OpenViking Key。endpoint、account、root prefix 等不开放前端配置。
             </div>
 
             <div className="flex flex-wrap justify-end gap-2">
@@ -276,7 +276,9 @@ function SpacePill({ space }: { space?: SkillSpaceConfig }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <Dot state={cloud ? "on" : "off"} />
-      <Pill tone={cloud ? "blue" : "purple"}>{cloud ? "OpenViking" : "本地"}</Pill>
+      <Pill tone={cloud ? "blue" : "purple"}>
+        {cloud ? (space?.inherited_from_admin ? "OpenViking · 继承" : "OpenViking") : "本地"}
+      </Pill>
     </span>
   );
 }
@@ -299,10 +301,15 @@ function KeyEditor({
   const [visible, setVisible] = useState(false);
   const [revealing, setRevealing] = useState(false);
   const configured = !!value.api_key_present;
+  const inherited = !!value.inherited_from_admin;
 
   async function toggleVisible() {
     if (visible) {
       setVisible(false);
+      return;
+    }
+    if (inherited) {
+      setVisible(true);
       return;
     }
     if (configured && canReveal && !value.viking_api_key) {
@@ -331,7 +338,7 @@ function KeyEditor({
           <Input
             type={visible ? "text" : "password"}
             value={value.viking_api_key || ""}
-            placeholder={configured ? "已配置，输入新值可替换" : "留空使用本地空间"}
+            placeholder={inherited ? "继承管理员团队 Key，不回显明文" : configured ? "已配置，输入新值可替换" : "留空使用本地空间"}
             onChange={(e) => onChange({ ...value, viking_api_key: e.target.value, clear_viking_api_key: false })}
           />
           <Button
@@ -354,7 +361,7 @@ function KeyEditor({
           </Button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-soft">
-          默认隐藏；点击“显示”才读取明文。保存时留空会保留原 Key，清空后保存才删除。
+          默认隐藏；点击“显示”才读取明文。继承管理员团队 Key 时不会回显明文；保存时留空会保留原 Key，清空后保存才删除。
         </div>
       </Field>
     </div>

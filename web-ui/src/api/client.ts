@@ -315,6 +315,7 @@ export interface SkillSpaceConfig {
   viking_api_key?: string;
   clear_viking_api_key?: boolean;
   api_key_present?: boolean;
+  inherited_from_admin?: boolean;
 }
 
 export interface UserProfile {

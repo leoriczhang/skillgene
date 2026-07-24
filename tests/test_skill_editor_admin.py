@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from skillgene.config import SkillGeneConfig
 from skillgene.proxy import ProxyServer
+from skillgene.proxy.users_admin import _hub_from_user
 from skillgene.skills import editor
 from skillgene.skills.editor import SkillEditorError
 from skillgene.skills.hub import SkillHub
@@ -447,6 +449,31 @@ def test_user_routes_register_hide_keys_and_share_local_spaces(tmp_path: Path) -
     registry = (tmp_path / "users.json").read_text(encoding="utf-8")
     assert "personal-secret" in registry
     assert "team-secret" in registry
+
+    regular = client.post(
+        "/api/users",
+        json={
+            "id": "bob",
+            "role": "user",
+            "personal_space": {},
+            "team_space": {},
+        },
+    )
+    assert regular.status_code == 200
+    assert regular.json()["team_space"]["backend"] == "viking"
+    assert regular.json()["team_space"]["api_key_present"] is True
+    assert regular.json()["team_space"]["inherited_from_admin"] is True
+
+    team_secret = client.get("/api/users/bob/spaces/team/secret")
+    assert team_secret.status_code == 200
+    assert team_secret.json()["api_key_present"] is True
+    assert team_secret.json()["inherited_from_admin"] is True
+    assert team_secret.json()["viking_api_key"] == ""
+
+    data = json.loads((tmp_path / "users.json").read_text(encoding="utf-8"))
+    bob = next(user for user in data["users"] if user["id"] == "bob")
+    bob_team_hub = _hub_from_user(server.config, bob, space="team")
+    assert getattr(bob_team_hub._bucket, "_api_key", "") == "team-secret"
 
 
 def test_routes_full_crud_cycle_without_sharing(tmp_path: Path) -> None:

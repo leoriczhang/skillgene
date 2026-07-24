@@ -250,7 +250,7 @@ class RoutesMixin:
                 owner._console_sessions.pop(token, None)
                 return None
             session["expires_at"] = time.time() + _SESSION_TTL_SECONDS
-            return _public_user(user)
+            return _public_user(user, owner.config)
 
         def _users_empty() -> bool:
             data = _load_registry(_registry_path(owner.config))
@@ -313,7 +313,7 @@ class RoutesMixin:
                 "created_at": time.time(),
                 "expires_at": time.time() + _SESSION_TTL_SECONDS,
             }
-            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user)})
+            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user, owner.config)})
             resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=_SESSION_TTL_SECONDS, path="/")
             return resp
 
@@ -339,7 +339,7 @@ class RoutesMixin:
                 "created_at": time.time(),
                 "expires_at": time.time() + _SESSION_TTL_SECONDS,
             }
-            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user)})
+            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user, owner.config)})
             resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=_SESSION_TTL_SECONDS, path="/")
             return resp
 
@@ -373,7 +373,7 @@ class RoutesMixin:
                 "created_at": time.time(),
                 "expires_at": time.time() + _SESSION_TTL_SECONDS,
             }
-            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user)})
+            resp = JSONResponse(content={"authenticated": True, "needs_setup": False, "user": _public_user(user, owner.config)})
             resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=_SESSION_TTL_SECONDS, path="/")
             return resp
 
